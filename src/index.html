@@ -94,7 +94,8 @@
       gap: 8px;
       flex-wrap: wrap;
     }
-    .tools input {
+    .tools input,
+    .tools select {
       flex: 1 1 240px;
       min-width: 220px;
       border: 1px solid #b8ccdd;
@@ -136,7 +137,10 @@
     <div class="tools">
       <label for="propertyName">Property name to place on selected parts</label>
       <div class="tools-row">
-        <input id="propertyName" type="text" value="Assembly Pos" placeholder="Example: Assembly Pos">
+        <select id="propertyName">
+          <option value="">Select property from selection</option>
+        </select>
+        <button id="refreshPropertiesBtn" type="button" disabled>Refresh Properties</button>
         <button id="applyPropertyBtn" type="button" disabled>Apply To Selection</button>
       </div>
     </div>
@@ -279,22 +283,85 @@
       };
     }
 
+    function getSelectionItems(selection) {
+      const items = [];
+      for (const modelSelection of selection || []) {
+        const ids = modelSelection.objectRuntimeIds || [];
+        for (const id of ids) items.push({ modelId: modelSelection.modelId, objectRuntimeId: id });
+      }
+      return items;
+    }
+
+    function setPropertyDropdownOptions(selectEl, propertyNames) {
+      selectEl.innerHTML = "";
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = propertyNames.length ? "Select a property" : "Select parts and refresh properties";
+      selectEl.appendChild(placeholder);
+
+      for (const name of propertyNames) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        selectEl.appendChild(option);
+      }
+
+      if (!propertyNames.length) return;
+
+      const preferred = propertyNames.find(name => String(name).toLowerCase() === "assembly pos");
+      selectEl.value = preferred || propertyNames[0];
+    }
+
+    async function refreshPropertyDropdown(statusEl) {
+      if (!apiRef || !supportsViewerMarkup(apiRef)) return [];
+
+      const selectEl = document.getElementById("propertyName");
+      const selection = await apiRef.viewer.getSelection();
+      const items = getSelectionItems(selection);
+
+      if (!items.length) {
+        setPropertyDropdownOptions(selectEl, []);
+        statusEl.textContent = "No objects selected. Select parts, then click Refresh Properties.";
+        return [];
+      }
+
+      const names = new Set();
+      for (const item of items) {
+        const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+        const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+        if (!objectData) continue;
+
+        const flattened = flattenProperties(objectData);
+        for (const property of flattened) {
+          if (property && property.name) names.add(String(property.name));
+        }
+      }
+
+      const propertyNames = Array.from(names).sort((a, b) => a.localeCompare(b));
+      setPropertyDropdownOptions(selectEl, propertyNames);
+
+      if (!propertyNames.length) {
+        statusEl.textContent = "No properties found on current selection.";
+      } else {
+        statusEl.textContent = "Loaded " + propertyNames.length + " properties from current selection.";
+      }
+
+      return propertyNames;
+    }
+
     async function applyPropertyToSelection() {
       if (!apiRef) return;
 
       const statusEl = document.getElementById("status");
       const propertyName = document.getElementById("propertyName").value.trim();
       if (!propertyName) {
-        statusEl.textContent = "Enter a property name first.";
+        statusEl.textContent = "Select a property first, then click Apply.";
         return;
       }
 
       const selection = await apiRef.viewer.getSelection();
-      const items = [];
-      for (const modelSelection of selection || []) {
-        const ids = modelSelection.objectRuntimeIds || [];
-        for (const id of ids) items.push({ modelId: modelSelection.modelId, objectRuntimeId: id });
-      }
+      const items = getSelectionItems(selection);
 
       if (!items.length) {
         statusEl.textContent = "No objects selected in the 3D viewer.";
@@ -335,6 +402,8 @@
       const hostEl = document.getElementById("host");
       const projectEl = document.getElementById("project");
       const userEl = document.getElementById("user");
+      const propertySelect = document.getElementById("propertyName");
+      const refreshBtn = document.getElementById("refreshPropertiesBtn");
       const applyBtn = document.getElementById("applyPropertyBtn");
 
       const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
@@ -395,7 +464,35 @@
 
         if (supportsViewerMarkup(api)) {
           statusEl.textContent = "Connected via " + apiFlavor + " API. Property markup tool is ready.";
+          propertySelect.disabled = false;
+          refreshBtn.disabled = false;
           applyBtn.disabled = false;
+
+          refreshBtn.addEventListener("click", async () => {
+            refreshBtn.disabled = true;
+            applyBtn.disabled = true;
+            try {
+              const propertyNames = await refreshPropertyDropdown(statusEl);
+              applyBtn.disabled = propertyNames.length === 0;
+            } catch (error) {
+              console.error(error);
+              statusEl.textContent = "Failed while loading properties from selection.";
+              applyBtn.disabled = true;
+            } finally {
+              refreshBtn.disabled = false;
+            }
+          });
+
+          try {
+            const initialProperties = await refreshPropertyDropdown(statusEl);
+            if (initialProperties.length) {
+              statusEl.textContent = "Connected via " + apiFlavor + " API. Property list loaded.";
+            }
+            applyBtn.disabled = initialProperties.length === 0;
+          } catch {
+            applyBtn.disabled = true;
+          }
+
           applyBtn.addEventListener("click", async () => {
             applyBtn.disabled = true;
             try {
