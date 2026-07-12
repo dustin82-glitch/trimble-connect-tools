@@ -130,7 +130,8 @@ function toMarkupPick(position, modelId, objectId) {
     positionY: position.y,
     positionZ: position.z,
     modelId,
-    objectId
+    objectId: Number(objectId),
+    type: "point"
   };
 }
 
@@ -238,11 +239,16 @@ async function applyPropertyToSelection() {
     const center = centerOfBox(boxData);
     if (!center) continue;
 
-    const pick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+    const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+    const endPick = {
+      ...startPick,
+      positionX: startPick.positionX + 1
+    };
+
     await apiRef.markup.addTextMarkup([
       {
-        start: pick,
-        end: pick,
+        start: startPick,
+        end: endPick,
         text: propertyName + ": " + textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
       }
