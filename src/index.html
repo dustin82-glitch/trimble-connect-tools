@@ -46,27 +46,57 @@
   <div class="footer-note">Extension Mode: Always forcing parent assembly logic</div>
 
   <script>
-    let connectAPI = null;
     let workspaceAPI = null;
-    const TRUSTED_HOST_PATTERN = /(^|\.)trimble\.com$|(^|\.)trimblepaas\.com$/i;
 
-    function isTrustedHost() {
-      return TRUSTED_HOST_PATTERN.test(window.location.hostname);
+    function setStatus(message) {
+      const el = document.querySelector(".footer-note");
+      if (el) el.textContent = message;
     }
 
-    function isTrustedReferrer() {
-      try {
-        if (!document.referrer) return false;
-        const refHost = new URL(document.referrer).hostname;
-        return TRUSTED_HOST_PATTERN.test(refHost);
-      } catch {
-        return false;
+    function toMm(value) {
+      if (!Number.isFinite(value)) return value;
+      return Math.abs(value) < 1000 ? value * 1000 : value;
+    }
+
+    function parseNumberLike(value) {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      const parsed = Number.parseFloat(String(value).replace(/,/g, ""));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function flattenProperties(objectProperties) {
+      const sets = objectProperties && objectProperties.properties ? objectProperties.properties : [];
+      const all = [];
+      for (const set of sets) {
+        const properties = set && set.properties ? set.properties : [];
+        for (const property of properties) all.push(property);
       }
+      return all;
     }
 
-    function isTrustedContext() {
-      // Allow direct trimble host usage or trusted parent referrer when embedded.
-      return isTrustedHost() || isTrustedReferrer();
+    function findPropertyValue(objectProperties, names) {
+      const lookup = new Set(names.map(n => n.toLowerCase()));
+      const properties = flattenProperties(objectProperties);
+      for (const property of properties) {
+        if (lookup.has(String(property.name).toLowerCase())) return property.value;
+      }
+      return null;
+    }
+
+    function pointPick(positionX, positionY, positionZ, modelId, objectId) {
+      const pick = { positionX, positionY, positionZ };
+      if (modelId) pick.modelId = modelId;
+      if (Number.isFinite(objectId)) pick.objectId = objectId;
+      return pick;
+    }
+
+    function centerFromBoundingBox(boundingBox) {
+      if (!boundingBox || !boundingBox.min || !boundingBox.max) return null;
+      return {
+        x: (boundingBox.min.x + boundingBox.max.x) / 2,
+        y: (boundingBox.min.y + boundingBox.max.y) / 2,
+        z: (boundingBox.min.z + boundingBox.max.z) / 2
+      };
     }
 
     async function registerProjectMenu(api) {
@@ -74,21 +104,16 @@
         title: "Trimble Connect Tools",
         icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
         command: "trimble_tools",
-        subMenus: [
-          {
-            title: "Assembly Tools",
-            command: "trimble_tools_home"
-          }
-        ]
+        subMenus: [{ title: "Assembly Tools", command: "trimble_tools_home" }]
       };
 
       await api.ui.setMenu(menu);
       await api.ui.setActiveMenuItem("trimble_tools_home");
     }
 
-    async function initProjectExtensionApi() {
+    async function initWorkspaceApi() {
       if (!window.TrimbleConnectWorkspace || !window.TrimbleConnectWorkspace.connect) {
-        return;
+        throw new Error("Trimble Workspace API bundle not loaded.");
       }
 
       workspaceAPI = await window.TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
@@ -98,120 +123,124 @@
       }, 30000);
 
       await registerProjectMenu(workspaceAPI);
-      console.log("Project extension API initialized.");
+      setStatus("Connected to Trimble Workspace API");
     }
 
-    // Connect to Trimble Browser Client Environment
-    if (!isTrustedContext()) {
-      console.warn("Running without trusted host/referrer match. Proceeding with API handshake.");
-    }
-
-    initProjectExtensionApi().catch(err => console.error("Project Extension init failed:", err));
-
-    if (window.TCC && window.TCC.Workspace && window.TCC.Workspace.init) {
-      window.TCC.Workspace.init().then((api) => {
-        connectAPI = api;
-        console.log("Trimble Connected Framework initialized.");
-      }).catch(err => console.error("Framework Init Failed:", err));
-    }
-
-    // Internal helper function to fetch properties and force parent hierarchy resolution
-    async function getTargetPropertiesAndCoords(modelId, initialObjectId) {
-      let activeId = initialObjectId;
-      let props = await connectAPI.model.getObjectProperties(modelId, activeId);
-      
-      if (props && props.properties) {
-        // Enforce always moving up to the parent structural assembly
-        const parentProp = props.properties.find(p => p.name === "Assembly ID" || p.name === "Parent ID" || p.name === "Assembly Position");
-        if (parentProp && parentProp.value && parentProp.value !== initialObjectId) {
-          activeId = parentProp.value;
-          props = await connectAPI.model.getObjectProperties(modelId, activeId);
+    async function getSelectionItems() {
+      const selection = await workspaceAPI.viewer.getSelection();
+      const items = [];
+      for (const modelSelection of selection || []) {
+        const ids = modelSelection.objectRuntimeIds || [];
+        for (const runtimeId of ids) {
+          items.push({ modelId: modelSelection.modelId, runtimeId });
         }
       }
-      return { activeId, props };
+      return items;
     }
 
-    // Process Feature 1: Position Marks
+    async function getObjectPropertiesByRuntimeId(modelId, runtimeId) {
+      const properties = await workspaceAPI.viewer.getObjectProperties(modelId, [runtimeId]);
+      return properties && properties.length ? properties[0] : null;
+    }
+
+    async function getTargetRuntimeId(modelId, runtimeId) {
+      const parents = await workspaceAPI.viewer.getHierarchyParents(modelId, [runtimeId]);
+      if (parents && parents.length && Number.isFinite(parents[0].id)) return parents[0].id;
+      return runtimeId;
+    }
+
     document.getElementById("applyMarkupBtn").addEventListener("click", async () => {
-      if (!connectAPI) return alert("API wrapper down.");
-      const selection = await connectAPI.interaction.getSelection();
-      if (!selection || selection.length === 0) return alert("Select a part/assembly first.");
+      try {
+        if (!workspaceAPI) return alert("Extension API not connected yet.");
+        const items = await getSelectionItems();
+        if (!items.length) return alert("Select one or more model objects first.");
 
-      const selectedAttr = document.getElementById("propSelect").value;
+        const selectedAttr = document.getElementById("propSelect").value;
 
-      for (const item of selection) {
-        const { activeId, props } = await getTargetPropertiesAndCoords(item.modelId, item.id);
-        let val = "N/A";
-        
-        if (props && props.properties) {
-          const match = props.properties.find(p => p.name === selectedAttr);
-          if (match) val = match.value;
+        for (const item of items) {
+          const targetId = await getTargetRuntimeId(item.modelId, item.runtimeId);
+          const objectProperties = await getObjectPropertiesByRuntimeId(item.modelId, targetId);
+          const rawValue = findPropertyValue(objectProperties, [selectedAttr]);
+          const labelValue = rawValue === null || rawValue === undefined || rawValue === "" ? "N/A" : String(rawValue);
+
+          const boxes = await workspaceAPI.viewer.getObjectBoundingBoxes(item.modelId, [targetId]);
+          const center = boxes && boxes.length ? centerFromBoundingBox(boxes[0].boundingBox) : null;
+          if (!center) continue;
+
+          const pick = pointPick(toMm(center.x), toMm(center.y), toMm(center.z), item.modelId, targetId);
+          await workspaceAPI.markup.addTextMarkup([
+            {
+              start: pick,
+              end: pick,
+              text: selectedAttr + ": " + labelValue,
+              color: { r: 0, g: 112, b: 192, a: 255 }
+            }
+          ]);
         }
-
-        // Bounding box lookup fallback just for the spatial text placement coordinates
-        const bounds = await connectAPI.model.getObjectBounds(item.modelId, activeId);
-        if (bounds) {
-          await connectAPI.markup.createTextMarkup({
-            text: `${selectedAttr}: ${val}`,
-            position: { x: (bounds.min.x+bounds.max.x)/2, y: (bounds.min.y+bounds.max.y)/2, z: (bounds.min.z+bounds.max.z)/2 },
-            color: { r: 0, g: 112, b: 192, a: 1 },
-            fontSize: 13
-          });
-        }
+      } catch (error) {
+        console.error("Failed to apply value pins:", error);
+        alert("Failed to apply value pins. Open console for details.");
       }
     });
 
-    // Process Feature 2: Accurate COG Metadata Mapping
     document.getElementById("calcCogBtn").addEventListener("click", async () => {
-      if (!connectAPI) return alert("API wrapper down.");
-      const selection = await connectAPI.interaction.getSelection();
-      if (!selection || selection.length === 0) return alert("Select a part/assembly first.");
+      try {
+        if (!workspaceAPI) return alert("Extension API not connected yet.");
+        const items = await getSelectionItems();
+        if (!items.length) return alert("Select one or more model objects first.");
 
-      const datumX = parseFloat(document.getElementById("datumX").value) || 0;
-      const datumY = parseFloat(document.getElementById("datumY").value) || 0;
+        const datumX = Number.parseFloat(document.getElementById("datumX").value) || 0;
+        const datumY = Number.parseFloat(document.getElementById("datumY").value) || 0;
 
-      for (const item of selection) {
-        const { activeId, props } = await getTargetPropertiesAndCoords(item.modelId, item.id);
-        if (!props || !props.properties) continue;
+        for (const item of items) {
+          const targetId = await getTargetRuntimeId(item.modelId, item.runtimeId);
+          const objectProperties = await getObjectPropertiesByRuntimeId(item.modelId, targetId);
+          if (!objectProperties) continue;
 
-        // Extract native model attributes directly instead of geometric estimations
-        const extract = (names) => {
-          const f = props.properties.find(p => names.includes(p.name));
-          return f ? parseFloat(f.value) : null;
-        };
+          const cogX = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity X", "COG X", "COG_X", "ASSEMBLY.COG_X"]));
+          const cogY = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity Y", "COG Y", "COG_Y", "ASSEMBLY.COG_Y"]));
+          const cogZ = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity Z", "COG Z", "COG_Z", "ASSEMBLY.COG_Z"]));
 
-        const cogX = extract(["Center of gravity X", "COG X", "COG_X", "ASSEMBLY.COG_X"]);
-        const cogY = extract(["Center of gravity Y", "COG Y", "COG_Y", "ASSEMBLY.COG_Y"]);
-        const cogZ = extract(["Center of gravity Z", "COG Z", "COG_Z", "ASSEMBLY.COG_Z"]);
+          if (cogX === null || cogY === null || cogZ === null) {
+            alert("Missing COG attributes for selected object runtime id: " + targetId);
+            continue;
+          }
 
-        if (cogX === null || cogY === null || cogZ === null) {
-          alert(`Missing true COG attribute rows for structural object ID: ${activeId}`);
-          continue;
+          const distX = Math.abs(cogX - datumX).toFixed(1);
+          const distY = Math.abs(cogY - datumY).toFixed(1);
+
+          const cogPick = pointPick(cogX, cogY, cogZ, item.modelId, targetId);
+          await workspaceAPI.markup.addTextMarkup([
+            {
+              start: cogPick,
+              end: cogPick,
+              text: "True COG\nDX: " + distX + "mm\nDY: " + distY + "mm",
+              color: { r: 255, g: 69, b: 0, a: 255 }
+            }
+          ]);
+
+          await workspaceAPI.markup.addLineMarkups([
+            {
+              start: pointPick(datumX, cogY, cogZ),
+              end: pointPick(cogX, cogY, cogZ),
+              color: { r: 255, g: 0, b: 0, a: 255 }
+            },
+            {
+              start: pointPick(cogX, datumY, cogZ),
+              end: pointPick(cogX, cogY, cogZ),
+              color: { r: 0, g: 128, b: 0, a: 255 }
+            }
+          ]);
         }
-
-        const distX = Math.abs(cogX - datumX).toFixed(1);
-        const distY = Math.abs(cogY - datumY).toFixed(1);
-
-        // Render Anchor Point
-        await connectAPI.markup.createTextMarkup({
-          text: `True COG\nΔX: ${distX}mm\nΔY: ${distY}mm`,
-          position: { x: cogX, y: cogY, z: cogZ },
-          color: { r: 255, g: 69, b: 0, a: 1 },
-          fontSize: 12
-        });
-
-        // X Vector
-        await connectAPI.markup.createLineMarkup({
-          startPosition: { x: datumX, y: cogY, z: cogZ }, endPosition: { x: cogX, y: cogY, z: cogZ },
-          color: { r: 255, g: 0, b: 0, a: 1 }, thickness: 2
-        });
-
-        // Y Vector
-        await connectAPI.markup.createLineMarkup({
-          startPosition: { x: cogX, y: datumY, z: cogZ }, endPosition: { x: cogX, y: cogY, z: cogZ },
-          color: { r: 0, g: 128, b: 0, a: 1 }, thickness: 2
-        });
+      } catch (error) {
+        console.error("Failed to calculate COG markups:", error);
+        alert("Failed to calculate COG markups. Open console for details.");
       }
+    });
+
+    initWorkspaceApi().catch(error => {
+      console.error("Workspace API init failed:", error);
+      setStatus("Workspace API init failed");
     });
   </script>
 </body>
