@@ -1,4 +1,5 @@
 let apiRef = null;
+const BUILD_VERSION = "20260712-14";
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -419,6 +420,11 @@ async function initExtension() {
   const propertySelect = document.getElementById("propertyName");
   const refreshBtn = document.getElementById("refreshPropertiesBtn");
   const applyBtn = document.getElementById("applyPropertyBtn");
+  const debugSummary = document.getElementById("debugSummary");
+
+  if (debugSummary) {
+    debugSummary.textContent = "Build " + BUILD_VERSION + " loaded. No debug data yet.";
+  }
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
   if (!hasModern) {
