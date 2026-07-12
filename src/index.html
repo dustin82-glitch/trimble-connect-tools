@@ -2,10 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://components.connect.trimble.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://components.connect.trimble.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
   <title>Trimble Connect Hello World</title>
   <!-- Load official Trimble Workspace API bundle -->
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+  <!-- Load legacy Project Workspace API bundle for compatibility with older hosts -->
+  <script src="https://cdn.jsdelivr.net/npm/trimble-connect-project-workspace-api@0.1.5/dist/iife/trimble-connect.project.workspace.api.js"></script>
   <style>
     :root {
       --brand: #0070c0;
@@ -142,13 +144,14 @@
 
   <script>
     let apiRef = null;
+    let apiFlavor = "unknown";
 
     function sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function connectWithTimeout(target, timeoutMs) {
-      const connectPromise = window.TrimbleConnectWorkspace.connect(target, (event, args) => {
+    async function connectWithTimeout(connectFn, target, timeoutMs) {
+      const connectPromise = connectFn(target, (event, args) => {
         if (event === "extension.command") {
           console.log("extension.command", args);
         }
@@ -171,24 +174,70 @@
       const seen = new Set();
       const errors = [];
 
-      for (const candidate of candidates) {
-        if (!candidate.target) continue;
-        if (seen.has(candidate.target)) continue;
-        seen.add(candidate.target);
+      const modernConnect = window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect
+        ? window.TrimbleConnectWorkspace.connect
+        : null;
 
-        statusEl.textContent = "Connecting via " + candidate.name + " window...";
-        try {
-          const api = await connectWithTimeout(candidate.target, 10000);
-          statusEl.textContent = "Connected via " + candidate.name + " window.";
-          return api;
-        } catch (error) {
-          const message = error && error.message ? error.message : String(error);
-          errors.push(candidate.name + ": " + message);
-          await sleep(150);
+      const legacyConnect = window.ProjectWorkspaceAPI && window.ProjectWorkspaceAPI.connect
+        ? window.ProjectWorkspaceAPI.connect
+        : null;
+
+      if (!modernConnect && !legacyConnect) {
+        throw new Error("No Trimble API connectors found on window.");
+      }
+
+      if (modernConnect) {
+        for (const candidate of candidates) {
+          if (!candidate.target) continue;
+          if (seen.has(candidate.target)) continue;
+          seen.add(candidate.target);
+
+          statusEl.textContent = "Connecting via modern API (" + candidate.name + ")...";
+          try {
+            const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
+            return { api, flavor: "modern" };
+          } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            errors.push("modern " + candidate.name + ": " + message);
+            await sleep(150);
+          }
+        }
+      }
+
+      if (legacyConnect) {
+        for (const candidate of candidates) {
+          if (!candidate.target) continue;
+
+          statusEl.textContent = "Connecting via legacy API (" + candidate.name + ")...";
+          try {
+            const api = await connectWithTimeout(legacyConnect, candidate.target, 10000);
+            return { api, flavor: "legacy" };
+          } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            errors.push("legacy " + candidate.name + ": " + message);
+            await sleep(150);
+          }
         }
       }
 
       throw new Error("Connection failed. " + errors.join(" | "));
+    }
+
+    function supportsViewerMarkup(api) {
+      return !!(api && api.viewer && api.viewer.getSelection && api.viewer.getObjectProperties && api.viewer.getObjectBoundingBoxes && api.markup && api.markup.addTextMarkup);
+    }
+
+    async function registerMenuIfAvailable(api) {
+      if (!api || !api.ui || !api.ui.setMenu) return;
+      await api.ui.setMenu({
+        title: "Hello World",
+        icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
+        command: "hello_world",
+        subMenus: [{ title: "Home", command: "hello_world_home" }]
+      });
+      if (api.ui.setActiveMenuItem) {
+        await api.ui.setActiveMenuItem("hello_world_home");
+      }
     }
 
     function flattenProperties(objectProperties) {
@@ -288,64 +337,83 @@
       const userEl = document.getElementById("user");
       const applyBtn = document.getElementById("applyPropertyBtn");
 
-      if (!window.TrimbleConnectWorkspace || !window.TrimbleConnectWorkspace.connect) {
-        statusEl.textContent = "Workspace API bundle not available";
+      const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
+      const hasLegacy = !!(window.ProjectWorkspaceAPI && window.ProjectWorkspaceAPI.connect);
+      if (!hasModern && !hasLegacy) {
+        statusEl.textContent = "No supported Trimble API bundle available.";
         return;
       }
 
       try {
-        const api = await connectWorkspaceApiWithFallbacks(statusEl);
+        const connected = await connectWorkspaceApiWithFallbacks(statusEl);
+        const api = connected.api;
+        apiFlavor = connected.flavor;
         apiRef = api;
 
         try {
-          await api.ui.setMenu({
-            title: "Hello World",
-            icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
-            command: "hello_world",
-            subMenus: [{ title: "Home", command: "hello_world_home" }]
-          });
-          await api.ui.setActiveMenuItem("hello_world_home");
+          await registerMenuIfAvailable(api);
         } catch (menuError) {
           console.warn("Menu registration skipped:", menuError);
         }
 
-        try {
-          const host = await api.extension.getHost();
-          hostEl.textContent = host && host.name ? host.name : "unknown";
-        } catch {
-          hostEl.textContent = "unknown";
-        }
-
-        try {
-          const project = await api.project.getProject();
-          projectEl.textContent = project && project.name ? project.name : "unknown";
-        } catch {
-          projectEl.textContent = "unknown";
-        }
-
-        try {
-          const user = await api.user.getUser();
-          userEl.textContent = user && user.email ? user.email : (user && user.name ? user.name : "unknown");
-        } catch {
-          userEl.textContent = "unknown";
-        }
-
-        statusEl.textContent = "Connected. Hello World extension is running.";
-        applyBtn.disabled = false;
-        applyBtn.addEventListener("click", async () => {
-          applyBtn.disabled = true;
+        if (apiFlavor === "modern") {
           try {
-            await applyPropertyToSelection();
-          } catch (error) {
-            console.error(error);
-            statusEl.textContent = "Failed while placing property markups.";
-          } finally {
-            applyBtn.disabled = false;
+            const host = await api.extension.getHost();
+            hostEl.textContent = host && host.name ? host.name : "modern";
+          } catch {
+            hostEl.textContent = "modern";
           }
-        });
+
+          try {
+            const project = await api.project.getProject();
+            projectEl.textContent = project && project.name ? project.name : "unknown";
+          } catch {
+            projectEl.textContent = "unknown";
+          }
+
+          try {
+            const user = await api.user.getUser();
+            userEl.textContent = user && user.email ? user.email : (user && user.name ? user.name : "unknown");
+          } catch {
+            userEl.textContent = "unknown";
+          }
+        } else {
+          hostEl.textContent = "legacy";
+          try {
+            const project = await api.project.getCurrentProject();
+            projectEl.textContent = project && project.name ? project.name : "unknown";
+          } catch {
+            projectEl.textContent = "unknown";
+          }
+          try {
+            const userSettings = await api.user.getUserSettings();
+            userEl.textContent = userSettings && userSettings.language ? "lang: " + userSettings.language : "legacy";
+          } catch {
+            userEl.textContent = "legacy";
+          }
+        }
+
+        if (supportsViewerMarkup(api)) {
+          statusEl.textContent = "Connected via " + apiFlavor + " API. Property markup tool is ready.";
+          applyBtn.disabled = false;
+          applyBtn.addEventListener("click", async () => {
+            applyBtn.disabled = true;
+            try {
+              await applyPropertyToSelection();
+            } catch (error) {
+              console.error(error);
+              statusEl.textContent = "Failed while placing property markups.";
+            } finally {
+              applyBtn.disabled = false;
+            }
+          });
+        } else {
+          applyBtn.disabled = true;
+          statusEl.textContent = "Connected via " + apiFlavor + " API, but viewer markup methods are unavailable in this host.";
+        }
       } catch (error) {
         console.error(error);
-        statusEl.textContent = "Could not connect to Trimble Workspace API: " + (error && error.message ? error.message : String(error));
+        statusEl.textContent = "Could not connect to Trimble APIs: " + (error && error.message ? error.message : String(error));
       }
     }
 
