@@ -1,7 +1,7 @@
 {
-  "title": "Trimble Connect Tools",
+  "title": "Trimble Hello World",
   "icon": "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
   "url": "https://dustin82-glitch.github.io/trimble-connect-tools/",
-  "description": "Assembly markup and COG helper tools for Trimble Connect",
+  "description": "Minimal hello world custom extension",
   "enabled": true
 }

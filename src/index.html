@@ -2,246 +2,157 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://components.connect.trimble.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
-  <title>Trimble Connect Assembly Automation Suite</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://components.connect.trimble.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
+  <title>Trimble Connect Hello World</title>
   <!-- Load official Trimble Workspace API bundle -->
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 14px; margin: 0; background: #fafafa; color: #333; }
-    h3 { margin-top: 0; font-size: 14px; border-bottom: 2px solid #0070c0; padding-bottom: 4px; color: #0070c0; }
-    .tool-section { background: #fff; padding: 12px; margin-bottom: 12px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); border: 1px solid #e0e0e0; }
-    label { font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px; text-transform: uppercase; color: #666; }
-    select, input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-    .row { display: flex; gap: 8px; }
-    .row input { width: 50%; }
-    button { width: 100%; padding: 10px; background: #0070c0; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
-    button:hover { background: #005a9e; }
-    .footer-note { font-size: 10px; color: #888; text-align: center; margin-top: 5px; }
+    :root {
+      --brand: #0070c0;
+      --ink: #173047;
+      --muted: #5d6f7e;
+      --bg: #f4f8fb;
+      --panel: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: radial-gradient(circle at 20% 0%, #e9f2fa 0%, var(--bg) 55%);
+      color: var(--ink);
+      padding: 24px;
+    }
+    .card {
+      max-width: 720px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid #d8e4ef;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(22, 60, 90, 0.08);
+      padding: 22px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      color: var(--brand);
+      letter-spacing: 0.2px;
+    }
+    p {
+      margin: 8px 0;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .status {
+      margin-top: 14px;
+      font-size: 13px;
+      border-left: 4px solid var(--brand);
+      background: #eef6fd;
+      color: var(--muted);
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+    .meta {
+      margin-top: 14px;
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .label {
+      color: #44596b;
+      font-weight: 600;
+      margin-right: 6px;
+    }
   </style>
 </head>
 <body>
-
-  <!-- FEATURE 1: VALUE MARKUP TOOL -->
-  <div class="tool-section">
-    <h3>1. Attribute Position Markup</h3>
-    <label for="propSelect">Target Attribute Name:</label>
-    <select id="propSelect">
-      <option value="Assembly Pos">Assembly Pos</option>
-      <option value="Part Pos">Part Pos</option>
-    </select>
-    <button id="applyMarkupBtn">Apply Value Pins</button>
-  </div>
-
-  <!-- FEATURE 2: ACCURATE COG DISTANCE TOOL -->
-  <div class="tool-section">
-    <h3>2. True Assembly COG Tool</h3>
-    <label>Datum Base Coordinate (mm):</label>
-    <div class="row">
-      <input type="number" id="datumX" value="0" placeholder="X">
-      <input type="number" id="datumY" value="0" placeholder="Y">
+  <div class="card">
+    <div class="header">
+      <img class="icon" src="./icon.svg" alt="Extension icon">
+      <h1>Hello from Trimble Connect</h1>
     </div>
-    <button id="calcCogBtn">Mark Distances to COG</button>
+    <p>This is a minimal custom extension shell.</p>
+    <p>If you can see this panel inside Trimble Connect, your manifest and hosting setup are working.</p>
+    <div class="status" id="status">Connecting to Trimble Workspace API...</div>
+    <div class="meta">
+      <div><span class="label">Host:</span><span id="host">unknown</span></div>
+      <div><span class="label">Project:</span><span id="project">unknown</span></div>
+      <div><span class="label">User:</span><span id="user">unknown</span></div>
+    </div>
   </div>
-
-  <div class="footer-note">Extension Mode: Always forcing parent assembly logic</div>
 
   <script>
-    let workspaceAPI = null;
+    async function initExtension() {
+      const statusEl = document.getElementById("status");
+      const hostEl = document.getElementById("host");
+      const projectEl = document.getElementById("project");
+      const userEl = document.getElementById("user");
 
-    function setStatus(message) {
-      const el = document.querySelector(".footer-note");
-      if (el) el.textContent = message;
-    }
-
-    function toMm(value) {
-      if (!Number.isFinite(value)) return value;
-      return Math.abs(value) < 1000 ? value * 1000 : value;
-    }
-
-    function parseNumberLike(value) {
-      if (typeof value === "number" && Number.isFinite(value)) return value;
-      const parsed = Number.parseFloat(String(value).replace(/,/g, ""));
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    function flattenProperties(objectProperties) {
-      const sets = objectProperties && objectProperties.properties ? objectProperties.properties : [];
-      const all = [];
-      for (const set of sets) {
-        const properties = set && set.properties ? set.properties : [];
-        for (const property of properties) all.push(property);
-      }
-      return all;
-    }
-
-    function findPropertyValue(objectProperties, names) {
-      const lookup = new Set(names.map(n => n.toLowerCase()));
-      const properties = flattenProperties(objectProperties);
-      for (const property of properties) {
-        if (lookup.has(String(property.name).toLowerCase())) return property.value;
-      }
-      return null;
-    }
-
-    function pointPick(positionX, positionY, positionZ, modelId, objectId) {
-      const pick = { positionX, positionY, positionZ };
-      if (modelId) pick.modelId = modelId;
-      if (Number.isFinite(objectId)) pick.objectId = objectId;
-      return pick;
-    }
-
-    function centerFromBoundingBox(boundingBox) {
-      if (!boundingBox || !boundingBox.min || !boundingBox.max) return null;
-      return {
-        x: (boundingBox.min.x + boundingBox.max.x) / 2,
-        y: (boundingBox.min.y + boundingBox.max.y) / 2,
-        z: (boundingBox.min.z + boundingBox.max.z) / 2
-      };
-    }
-
-    async function registerProjectMenu(api) {
-      const menu = {
-        title: "Trimble Connect Tools",
-        icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
-        command: "trimble_tools",
-        subMenus: [{ title: "Assembly Tools", command: "trimble_tools_home" }]
-      };
-
-      await api.ui.setMenu(menu);
-      await api.ui.setActiveMenuItem("trimble_tools_home");
-    }
-
-    async function initWorkspaceApi() {
       if (!window.TrimbleConnectWorkspace || !window.TrimbleConnectWorkspace.connect) {
-        throw new Error("Trimble Workspace API bundle not loaded.");
+        statusEl.textContent = "Workspace API bundle not available";
+        return;
       }
 
-      workspaceAPI = await window.TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
-        if (event === "extension.command") {
-          console.log("Extension command:", args && args.data ? args.data : args);
-        }
-      }, 30000);
-
-      await registerProjectMenu(workspaceAPI);
-      setStatus("Connected to Trimble Workspace API");
-    }
-
-    async function getSelectionItems() {
-      const selection = await workspaceAPI.viewer.getSelection();
-      const items = [];
-      for (const modelSelection of selection || []) {
-        const ids = modelSelection.objectRuntimeIds || [];
-        for (const runtimeId of ids) {
-          items.push({ modelId: modelSelection.modelId, runtimeId });
-        }
-      }
-      return items;
-    }
-
-    async function getObjectPropertiesByRuntimeId(modelId, runtimeId) {
-      const properties = await workspaceAPI.viewer.getObjectProperties(modelId, [runtimeId]);
-      return properties && properties.length ? properties[0] : null;
-    }
-
-    async function getTargetRuntimeId(modelId, runtimeId) {
-      const parents = await workspaceAPI.viewer.getHierarchyParents(modelId, [runtimeId]);
-      if (parents && parents.length && Number.isFinite(parents[0].id)) return parents[0].id;
-      return runtimeId;
-    }
-
-    document.getElementById("applyMarkupBtn").addEventListener("click", async () => {
       try {
-        if (!workspaceAPI) return alert("Extension API not connected yet.");
-        const items = await getSelectionItems();
-        if (!items.length) return alert("Select one or more model objects first.");
-
-        const selectedAttr = document.getElementById("propSelect").value;
-
-        for (const item of items) {
-          const targetId = await getTargetRuntimeId(item.modelId, item.runtimeId);
-          const objectProperties = await getObjectPropertiesByRuntimeId(item.modelId, targetId);
-          const rawValue = findPropertyValue(objectProperties, [selectedAttr]);
-          const labelValue = rawValue === null || rawValue === undefined || rawValue === "" ? "N/A" : String(rawValue);
-
-          const boxes = await workspaceAPI.viewer.getObjectBoundingBoxes(item.modelId, [targetId]);
-          const center = boxes && boxes.length ? centerFromBoundingBox(boxes[0].boundingBox) : null;
-          if (!center) continue;
-
-          const pick = pointPick(toMm(center.x), toMm(center.y), toMm(center.z), item.modelId, targetId);
-          await workspaceAPI.markup.addTextMarkup([
-            {
-              start: pick,
-              end: pick,
-              text: selectedAttr + ": " + labelValue,
-              color: { r: 0, g: 112, b: 192, a: 255 }
-            }
-          ]);
-        }
-      } catch (error) {
-        console.error("Failed to apply value pins:", error);
-        alert("Failed to apply value pins. Open console for details.");
-      }
-    });
-
-    document.getElementById("calcCogBtn").addEventListener("click", async () => {
-      try {
-        if (!workspaceAPI) return alert("Extension API not connected yet.");
-        const items = await getSelectionItems();
-        if (!items.length) return alert("Select one or more model objects first.");
-
-        const datumX = Number.parseFloat(document.getElementById("datumX").value) || 0;
-        const datumY = Number.parseFloat(document.getElementById("datumY").value) || 0;
-
-        for (const item of items) {
-          const targetId = await getTargetRuntimeId(item.modelId, item.runtimeId);
-          const objectProperties = await getObjectPropertiesByRuntimeId(item.modelId, targetId);
-          if (!objectProperties) continue;
-
-          const cogX = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity X", "COG X", "COG_X", "ASSEMBLY.COG_X"]));
-          const cogY = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity Y", "COG Y", "COG_Y", "ASSEMBLY.COG_Y"]));
-          const cogZ = parseNumberLike(findPropertyValue(objectProperties, ["Center of gravity Z", "COG Z", "COG_Z", "ASSEMBLY.COG_Z"]));
-
-          if (cogX === null || cogY === null || cogZ === null) {
-            alert("Missing COG attributes for selected object runtime id: " + targetId);
-            continue;
+        const api = await window.TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
+          if (event === "extension.command") {
+            console.log("extension.command", args);
           }
+        }, 30000);
 
-          const distX = Math.abs(cogX - datumX).toFixed(1);
-          const distY = Math.abs(cogY - datumY).toFixed(1);
-
-          const cogPick = pointPick(cogX, cogY, cogZ, item.modelId, targetId);
-          await workspaceAPI.markup.addTextMarkup([
-            {
-              start: cogPick,
-              end: cogPick,
-              text: "True COG\nDX: " + distX + "mm\nDY: " + distY + "mm",
-              color: { r: 255, g: 69, b: 0, a: 255 }
-            }
-          ]);
-
-          await workspaceAPI.markup.addLineMarkups([
-            {
-              start: pointPick(datumX, cogY, cogZ),
-              end: pointPick(cogX, cogY, cogZ),
-              color: { r: 255, g: 0, b: 0, a: 255 }
-            },
-            {
-              start: pointPick(cogX, datumY, cogZ),
-              end: pointPick(cogX, cogY, cogZ),
-              color: { r: 0, g: 128, b: 0, a: 255 }
-            }
-          ]);
+        try {
+          await api.ui.setMenu({
+            title: "Hello World",
+            icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
+            command: "hello_world",
+            subMenus: [{ title: "Home", command: "hello_world_home" }]
+          });
+          await api.ui.setActiveMenuItem("hello_world_home");
+        } catch (menuError) {
+          console.warn("Menu registration skipped:", menuError);
         }
-      } catch (error) {
-        console.error("Failed to calculate COG markups:", error);
-        alert("Failed to calculate COG markups. Open console for details.");
-      }
-    });
 
-    initWorkspaceApi().catch(error => {
-      console.error("Workspace API init failed:", error);
-      setStatus("Workspace API init failed");
-    });
+        try {
+          const host = await api.extension.getHost();
+          hostEl.textContent = host && host.name ? host.name : "unknown";
+        } catch {
+          hostEl.textContent = "unknown";
+        }
+
+        try {
+          const project = await api.project.getProject();
+          projectEl.textContent = project && project.name ? project.name : "unknown";
+        } catch {
+          projectEl.textContent = "unknown";
+        }
+
+        try {
+          const user = await api.user.getUser();
+          userEl.textContent = user && user.email ? user.email : (user && user.name ? user.name : "unknown");
+        } catch {
+          userEl.textContent = "unknown";
+        }
+
+        statusEl.textContent = "Connected. Hello World extension is running.";
+      } catch (error) {
+        console.error(error);
+        statusEl.textContent = "Could not connect to Trimble Workspace API.";
+      }
+    }
+
+    initExtension();
   </script>
 </body>
 </html>

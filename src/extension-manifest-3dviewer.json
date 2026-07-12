@@ -1,8 +1,8 @@
 {
-  "title": "Trimble Connect Tools (3D)",
+  "title": "Trimble Hello World (3D)",
   "icon": "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
   "url": "https://dustin82-glitch.github.io/trimble-connect-tools/",
-  "description": "Assembly markup and COG helper tools for Trimble Connect 3D Viewer",
+  "description": "Minimal hello world extension for 3D viewer",
   "extensionType": ["3dviewer"],
   "type": "panel",
   "enabled": true
