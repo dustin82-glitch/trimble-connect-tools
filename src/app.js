@@ -242,6 +242,20 @@ function renderDebugRows(propertyName, rows, totalSelected, maxShown) {
   }
 }
 
+function initializeDebugPanel() {
+  const summaryEl = document.getElementById("debugSummary");
+  const listEl = document.getElementById("debugList");
+  if (!summaryEl || !listEl) return;
+
+  const startedAt = new Date().toISOString();
+  summaryEl.textContent = "Build " + BUILD_VERSION + " loaded at " + startedAt + ".";
+  listEl.innerHTML = "";
+
+  const li = document.createElement("li");
+  li.textContent = "debug-init | build=" + BUILD_VERSION + " | waiting for selection";
+  listEl.appendChild(li);
+}
+
 async function refreshPropertyDropdown(statusEl) {
   if (!apiRef || !supportsViewerMarkup(apiRef)) return [];
 
@@ -420,11 +434,7 @@ async function initExtension() {
   const propertySelect = document.getElementById("propertyName");
   const refreshBtn = document.getElementById("refreshPropertiesBtn");
   const applyBtn = document.getElementById("applyPropertyBtn");
-  const debugSummary = document.getElementById("debugSummary");
-
-  if (debugSummary) {
-    debugSummary.textContent = "Build " + BUILD_VERSION + " loaded. No debug data yet.";
-  }
+  initializeDebugPanel();
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
   if (!hasModern) {
