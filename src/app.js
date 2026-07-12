@@ -71,14 +71,65 @@ function flattenProperties(objectProperties) {
   return all;
 }
 
-function findPropertyValue(objectProperties, propertyName) {
-  const wanted = String(propertyName || "").trim().toLowerCase();
-  if (!wanted) return null;
-  const properties = flattenProperties(objectProperties);
-  for (const property of properties) {
-    if (String(property.name).toLowerCase() === wanted) return property.value;
+function normalizeKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function toDisplayValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
   }
-  return null;
+  if (Array.isArray(value)) {
+    return value.map(item => toDisplayValue(item)).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    if ("displayValue" in value && value.displayValue !== undefined && value.displayValue !== null) {
+      return String(value.displayValue);
+    }
+    if ("value" in value && value.value !== undefined && value.value !== null) {
+      return String(value.value);
+    }
+    if ("text" in value && value.text !== undefined && value.text !== null) {
+      return String(value.text);
+    }
+  }
+  return String(value);
+}
+
+function findPropertyValue(objectProperties, propertyName) {
+  const wanted = normalizeKey(propertyName);
+  if (!wanted) return { value: null, matchedName: null };
+
+  const properties = flattenProperties(objectProperties);
+
+  // Exact normalized match first.
+  for (const property of properties) {
+    const currentName = property && property.name ? String(property.name) : "";
+    if (normalizeKey(currentName) === wanted) {
+      return {
+        value: toDisplayValue(property.value),
+        matchedName: currentName
+      };
+    }
+  }
+
+  // Fallback: partial normalized match.
+  for (const property of properties) {
+    const currentName = property && property.name ? String(property.name) : "";
+    const currentNorm = normalizeKey(currentName);
+    if (!currentNorm) continue;
+    if (currentNorm.includes(wanted) || wanted.includes(currentNorm)) {
+      return {
+        value: toDisplayValue(property.value),
+        matchedName: currentName
+      };
+    }
+  }
+
+  return { value: null, matchedName: null };
 }
 
 function centerOfBox(boundingBox) {
@@ -232,8 +283,8 @@ async function applyPropertyToSelection() {
         continue;
       }
 
-      const value = findPropertyValue(objectData, propertyName);
-      const textValue = value === null || value === undefined || value === "" ? "N/A" : String(value);
+      const match = findPropertyValue(objectData, propertyName);
+      const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
 
       const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
       const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
@@ -265,7 +316,7 @@ async function applyPropertyToSelection() {
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: "queued"
+        status: match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)"
       });
     } catch (error) {
       failed += 1;
