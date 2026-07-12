@@ -1,13 +1,9 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-21";
+const BUILD_VERSION = "20260712-22";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
-const HELLO_WORLD_ORIGIN_X_MM = 279394711;
-const HELLO_WORLD_ORIGIN_Y_MM = 5788564212;
-const HELLO_WORLD_ORIGIN_Z_MM = 23084;
-const HELLO_WORLD_OFFSET_BELOW_MM = 500;
-const HELLO_WORLD_END_OFFSET_X_MM = 500;
+const HELLO_WORLD_TEXT = "Hello World";
 
 let selectionMonitorHandle = null;
 let lastSelectionSignature = "";
@@ -168,15 +164,6 @@ function getMarkupOffsetX(boundingBox) {
   if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
   const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
   return Math.max(MARKUP_MIN_OFFSET_MM, sizeX / 2 + MARKUP_CLEARANCE_MM);
-}
-
-function toWorldPick(x, y, z) {
-  return {
-    positionX: x,
-    positionY: y,
-    positionZ: z,
-    type: "point"
-  };
 }
 
 function getRuntimeIdsFromSelectionEntry(modelSelection) {
@@ -522,12 +509,6 @@ async function addHelloWorldTestMarkup() {
   if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
 
   const statusEl = document.getElementById("status");
-  const propertyName = document.getElementById("propertyName").value.trim();
-  if (!propertyName) {
-    statusEl.textContent = "Select a property first, then click Add Selected Value Test.";
-    return;
-  }
-
   const selection = await apiRef.viewer.getSelection();
   const items = await getSelectionItems(selection);
   if (!items.length) {
@@ -535,38 +516,76 @@ async function addHelloWorldTestMarkup() {
     return;
   }
 
-  // Use first selected item for fixed-coordinate test text.
-  const sampleItem = items[0];
-  const objectProperties = await apiRef.viewer.getObjectProperties(sampleItem.modelId, [sampleItem.objectRuntimeId]);
-  const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
-  const match = findPropertyValue(objectData, propertyName);
-  const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
+  const payload = [];
+  const debugRows = [];
+  let skipped = 0;
+  let failed = 0;
+  let firstError = "";
+  const applyItems = items.slice(0, 25);
 
-  const x = HELLO_WORLD_ORIGIN_X_MM;
-  const y = HELLO_WORLD_ORIGIN_Y_MM;
-  const z = HELLO_WORLD_ORIGIN_Z_MM - HELLO_WORLD_OFFSET_BELOW_MM;
+  for (const item of applyItems) {
+    try {
+      const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+      const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+      const center = centerOfBox(boxData);
+      if (!center) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: HELLO_WORLD_TEXT,
+          status: "no-bounding-box"
+        });
+        continue;
+      }
 
-  const payload = [
-    {
-      start: toWorldPick(x, y, z),
-      end: toWorldPick(x + HELLO_WORLD_END_OFFSET_X_MM, y, z),
-      text: textValue,
-      color: { r: 255, g: 128, b: 0, a: 255 }
+      const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+      const offsetX = getMarkupOffsetX(boxData);
+      const endPick = {
+        ...startPick,
+        positionX: startPick.positionX + offsetX
+      };
+
+      payload.push({
+        start: startPick,
+        end: endPick,
+        text: HELLO_WORLD_TEXT,
+        color: { r: 255, g: 128, b: 0, a: 255 }
+      });
+
+      const payloadEntry = payload[payload.length - 1];
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: HELLO_WORLD_TEXT,
+        status: "hello-world|dx=" + Math.round(offsetX),
+        payload: payloadEntry
+      });
+    } catch (error) {
+      failed += 1;
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: HELLO_WORLD_TEXT,
+        status: "error"
+      });
+      if (!firstError) {
+        firstError = error && error.message ? error.message : String(error);
+      }
     }
-  ];
+  }
+
+  renderDebugRows("hello-world", debugRows, items.length, applyItems.length);
+
+  if (!payload.length) {
+    statusEl.textContent = "No Hello World markups created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
+    return;
+  }
 
   try {
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " fixed-coordinate test markup using property '" + propertyName + "'.";
-    renderDebugRows("fixed-value-test", [
-      {
-        modelId: "world",
-        objectRuntimeId: "n/a",
-        value: textValue,
-        status: "value-from-selection | x=" + x + ", y=" + y + ", z=" + z + " | sourceId=" + sampleItem.objectRuntimeId
-      }
-    ], 1, 1);
+    statusEl.textContent = "Placed " + created + " Hello World markups. Skipped: " + skipped + ", Failed: " + failed + ".";
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "Hello World markup failed: " + message;
