@@ -1,5 +1,4 @@
 let apiRef = null;
-let apiFlavor = "unknown";
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -19,7 +18,7 @@ async function connectWithTimeout(connectFn, target, timeoutMs) {
   return Promise.race([connectPromise, timeoutPromise]);
 }
 
-async function connectWorkspaceApiWithFallbacks(statusEl) {
+async function connectWorkspaceApi(statusEl) {
   const candidates = [
     { name: "parent", target: window.parent },
     { name: "top", target: window.top },
@@ -43,13 +42,13 @@ async function connectWorkspaceApiWithFallbacks(statusEl) {
       if (seen.has(candidate.target)) continue;
       seen.add(candidate.target);
 
-      statusEl.textContent = "Connecting via modern API (" + candidate.name + ")...";
+      statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
       try {
         const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
-        return { api, flavor: "modern" };
+        return api;
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
-        errors.push("modern " + candidate.name + ": " + message);
+        errors.push(candidate.name + ": " + message);
         await sleep(150);
       }
     }
@@ -243,9 +242,7 @@ async function initExtension() {
   }
 
   try {
-    const connected = await connectWorkspaceApiWithFallbacks(statusEl);
-    const api = connected.api;
-    apiFlavor = connected.flavor;
+    const api = await connectWorkspaceApi(statusEl);
     apiRef = api;
 
     try {
@@ -270,7 +267,7 @@ async function initExtension() {
     }
 
     if (supportsViewerMarkup(api)) {
-      statusEl.textContent = "Connected via " + apiFlavor + " API. Property markup tool is ready.";
+      statusEl.textContent = "Connected to Workspace API. Property markup tool is ready.";
       propertySelect.disabled = false;
       refreshBtn.disabled = false;
       applyBtn.disabled = false;
@@ -291,7 +288,7 @@ async function initExtension() {
       });
 
       applyBtn.disabled = true;
-      statusEl.textContent = "Connected via " + apiFlavor + " API. Select parts and click Refresh Properties.";
+      statusEl.textContent = "Connected to Workspace API. Select parts and click Refresh Properties.";
 
       applyBtn.addEventListener("click", async () => {
         applyBtn.disabled = true;
@@ -306,7 +303,7 @@ async function initExtension() {
       });
     } else {
       applyBtn.disabled = true;
-      statusEl.textContent = "Connected via " + apiFlavor + " API, but viewer markup methods are unavailable in this host.";
+      statusEl.textContent = "Connected to Workspace API, but viewer markup methods are unavailable in this host.";
     }
   } catch (error) {
     console.error(error);
