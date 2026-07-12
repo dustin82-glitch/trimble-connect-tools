@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
   <title>Trimble Connect Assembly Automation Suite</title>
   <!-- Load official modern Trimble Workspace ESM bundle -->
-  <script src="https://jsdelivr.net"></script>
+  <script src="https://cdn.jsdelivr.net/npm/trimble-connect-workspace-api@1/dist/index.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 14px; margin: 0; background: #fafafa; color: #333; }
     h3 { margin-top: 0; font-size: 14px; border-bottom: 2px solid #0070c0; padding-bottom: 4px; color: #0070c0; }
@@ -46,12 +47,22 @@
 
   <script>
     let connectAPI = null;
+    const TRUSTED_HOST_PATTERN = /(^|\.)trimble\.com$|(^|\.)trimblepaas\.com$/i;
+
+    function isTrustedHost() {
+      return TRUSTED_HOST_PATTERN.test(window.location.hostname);
+    }
 
     // Connect to Trimble Browser Client Environment
-    window.TCC.Workspace.init().then((api) => {
-      connectAPI = api;
-      console.log("Trimble Connected Framework initialized.");
-    }).catch(err => console.error("Framework Init Failed:", err));
+    if (!isTrustedHost()) {
+      console.error("Blocked: this extension is only allowed on trusted Trimble hosts.");
+      alert("Untrusted host blocked. Open this extension from an approved Trimble domain.");
+    } else {
+      window.TCC.Workspace.init().then((api) => {
+        connectAPI = api;
+        console.log("Trimble Connected Framework initialized.");
+      }).catch(err => console.error("Framework Init Failed:", err));
+    }
 
     // Internal helper function to fetch properties and force parent hierarchy resolution
     async function getTargetPropertiesAndCoords(modelId, initialObjectId) {
