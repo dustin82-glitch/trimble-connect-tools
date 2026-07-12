@@ -1,9 +1,14 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-24";
+const BUILD_VERSION = "20260712-25";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
 const HELLO_WORLD_TEXT = "Hello World";
+const HELLO_WORLD_ORIGIN_X_MM = 279394711;
+const HELLO_WORLD_ORIGIN_Y_MM = 5788564212;
+const HELLO_WORLD_ORIGIN_Z_MM = 23084;
+const HELLO_WORLD_OFFSET_BELOW_MM = 500;
+const HELLO_WORLD_END_OFFSET_X_MM = 500;
 
 let selectionMonitorHandle = null;
 let lastSelectionSignature = "";
@@ -164,6 +169,15 @@ function getMarkupOffsetX(boundingBox) {
   if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
   const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
   return Math.max(MARKUP_MIN_OFFSET_MM, sizeX / 2 + MARKUP_CLEARANCE_MM);
+}
+
+function toWorldPick(x, y, z) {
+  return {
+    positionX: x,
+    positionY: y,
+    positionZ: z,
+    type: "point"
+  };
 }
 
 function getRuntimeIdsFromSelectionEntry(modelSelection) {
@@ -509,38 +523,14 @@ async function addHelloWorldTestMarkup() {
   if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
 
   const statusEl = document.getElementById("status");
-  const selection = await apiRef.viewer.getSelection();
-  const items = await getSelectionItems(selection);
-  if (!items.length) {
-    statusEl.textContent = "No selected objects found. Select parts first.";
-    return;
-  }
-
-  const item = items[0];
 
   try {
-    const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
-    const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-    const center = centerOfBox(boxData);
-    if (!center) {
-      renderDebugRows("hello-world", [
-        {
-          modelId: item.modelId,
-          objectRuntimeId: item.objectRuntimeId,
-          value: HELLO_WORLD_TEXT,
-          status: "no-bounding-box"
-        }
-      ], items.length, 1);
-      statusEl.textContent = "No Hello World markup created. Selected object has no bounding box.";
-      return;
-    }
+    const x = HELLO_WORLD_ORIGIN_X_MM;
+    const y = HELLO_WORLD_ORIGIN_Y_MM;
+    const z = HELLO_WORLD_ORIGIN_Z_MM - HELLO_WORLD_OFFSET_BELOW_MM;
 
-    const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-    const offsetX = getMarkupOffsetX(boxData);
-    const endPick = {
-      ...startPick,
-      positionX: startPick.positionX + offsetX
-    };
+    const startPick = toWorldPick(x, y, z);
+    const endPick = toWorldPick(x + HELLO_WORLD_END_OFFSET_X_MM, y, z);
 
     const payload = [
       {
@@ -553,17 +543,17 @@ async function addHelloWorldTestMarkup() {
 
     renderDebugRows("hello-world", [
       {
-        modelId: item.modelId,
-        objectRuntimeId: item.objectRuntimeId,
+        modelId: "world",
+        objectRuntimeId: "n/a",
         value: HELLO_WORLD_TEXT,
-        status: "hello-world|single|dx=" + Math.round(offsetX),
+        status: "hello-world|fixed|z-500",
         payload: payload[0]
       }
-    ], items.length, 1);
+    ], 1, 1);
 
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " Hello World markup from selected object's bounding-box center.";
+    statusEl.textContent = "Placed " + created + " Hello World markup at fixed location (Z-500mm).";
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "Hello World markup failed: " + message;
