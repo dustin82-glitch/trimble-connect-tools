@@ -151,11 +151,47 @@ function toMarkupPick(position, modelId, objectId) {
   };
 }
 
-function getSelectionItems(selection) {
+function getRuntimeIdsFromSelectionEntry(modelSelection) {
+  if (!modelSelection || typeof modelSelection !== "object") return [];
+  const candidates = [
+    modelSelection.objectRuntimeIds,
+    modelSelection.runtimeIds,
+    modelSelection.ids
+  ];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate) || !candidate.length) continue;
+    return candidate.filter(id => Number.isFinite(Number(id))).map(id => Number(id));
+  }
+  return [];
+}
+
+async function getSelectionItems(selection) {
   const items = [];
   for (const modelSelection of selection || []) {
-    const ids = modelSelection.objectRuntimeIds || [];
-    for (const id of ids) items.push({ modelId: modelSelection.modelId, objectRuntimeId: id });
+    const modelId = modelSelection && modelSelection.modelId ? modelSelection.modelId : null;
+    if (!modelId) continue;
+
+    const runtimeIds = getRuntimeIdsFromSelectionEntry(modelSelection);
+    if (runtimeIds.length) {
+      for (const runtimeId of runtimeIds) {
+        items.push({ modelId, objectRuntimeId: runtimeId });
+      }
+      continue;
+    }
+
+    const objectIds = Array.isArray(modelSelection.objectIds) ? modelSelection.objectIds : [];
+    if (objectIds.length && apiRef && apiRef.viewer && apiRef.viewer.convertToObjectRuntimeIds) {
+      try {
+        const converted = await apiRef.viewer.convertToObjectRuntimeIds(modelId, objectIds);
+        for (const runtimeId of converted || []) {
+          if (!Number.isFinite(Number(runtimeId))) continue;
+          items.push({ modelId, objectRuntimeId: Number(runtimeId) });
+        }
+      } catch {
+        // Conversion can fail on some hosts; debug panel will show no-runtime-ids status.
+      }
+    }
   }
   return items;
 }
@@ -210,10 +246,19 @@ async function refreshPropertyDropdown(statusEl) {
 
   const selectEl = document.getElementById("propertyName");
   const selection = await apiRef.viewer.getSelection();
-  const items = getSelectionItems(selection);
+  const items = await getSelectionItems(selection);
 
   if (!items.length) {
     setPropertyDropdownOptions(selectEl, []);
+    const rawEntry = selection && selection.length ? selection[0] : null;
+    renderDebugRows("", [
+      {
+        modelId: rawEntry && rawEntry.modelId ? rawEntry.modelId : "n/a",
+        objectRuntimeId: "n/a",
+        value: rawEntry ? "selection keys: " + Object.keys(rawEntry).join(",") : "no selection",
+        status: "no-runtime-ids"
+      }
+    ], selection && selection.length ? selection.length : 0, 0);
     statusEl.textContent = "No objects selected. Select parts, then click Refresh Properties.";
     return [];
   }
@@ -253,9 +298,18 @@ async function applyPropertyToSelection() {
   }
 
   const selection = await apiRef.viewer.getSelection();
-  const items = getSelectionItems(selection);
+  const items = await getSelectionItems(selection);
 
   if (!items.length) {
+    const rawEntry = selection && selection.length ? selection[0] : null;
+    renderDebugRows(propertyName, [
+      {
+        modelId: rawEntry && rawEntry.modelId ? rawEntry.modelId : "n/a",
+        objectRuntimeId: "n/a",
+        value: rawEntry ? "selection keys: " + Object.keys(rawEntry).join(",") : "no selection",
+        status: "no-runtime-ids"
+      }
+    ], selection && selection.length ? selection.length : 0, 0);
     statusEl.textContent = "No objects selected in the 3D viewer.";
     return;
   }
