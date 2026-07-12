@@ -1,6 +1,7 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-16";
-const MARKUP_X_OFFSET = 0.1;
+const BUILD_VERSION = "20260712-17";
+const MARKUP_MIN_OFFSET_MM = 150;
+const MARKUP_CLEARANCE_MM = 50;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -149,8 +150,15 @@ function toMarkupPick(position, modelId, objectId) {
     positionY: position.y,
     positionZ: position.z,
     modelId,
-    objectId: Number(objectId)
+    objectId: Number(objectId),
+    type: "point"
   };
+}
+
+function getMarkupOffsetX(boundingBox) {
+  if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
+  const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
+  return Math.max(MARKUP_MIN_OFFSET_MM, sizeX / 2 + MARKUP_CLEARANCE_MM);
 }
 
 function getRuntimeIdsFromSelectionEntry(modelSelection) {
@@ -371,9 +379,10 @@ async function applyPropertyToSelection() {
       }
 
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+      const offsetX = getMarkupOffsetX(boxData);
       const endPick = {
         ...startPick,
-        positionX: startPick.positionX + MARKUP_X_OFFSET
+        positionX: startPick.positionX + offsetX
       };
 
       payload.push({
@@ -386,7 +395,7 @@ async function applyPropertyToSelection() {
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)"
+        status: (match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)") + "|dx=" + Math.round(offsetX)
       });
     } catch (error) {
       failed += 1;
