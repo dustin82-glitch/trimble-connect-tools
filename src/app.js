@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-20";
+const BUILD_VERSION = "20260712-21";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -264,7 +264,13 @@ function renderDebugRows(propertyName, rows, totalSelected, maxShown) {
 
   for (const row of rows) {
     const li = document.createElement("li");
-    li.textContent = "model=" + row.modelId + " | id=" + row.objectRuntimeId + " | value=" + row.value + " | status=" + row.status;
+    let text = "model=" + row.modelId + " | id=" + row.objectRuntimeId + " | value=" + row.value + " | status=" + row.status;
+    if (row.payload) {
+      text += " | payload.start=(" + row.payload.start.positionX + "," + row.payload.start.positionY + "," + row.payload.start.positionZ + ")";
+      text += " | payload.end=(" + row.payload.end.positionX + "," + row.payload.end.positionY + "," + row.payload.end.positionZ + ")";
+      text += " | payload.text=\"" + row.payload.text + "\"";
+    }
+    li.textContent = text;
     listEl.appendChild(li);
   }
 }
@@ -465,11 +471,13 @@ async function applyPropertyToSelection() {
         text: textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
       });
+      const payloadEntry = payload[payload.length - 1];
       debugRows.push({
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: (match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)") + "|dx=" + Math.round(offsetX)
+        status: (match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)") + "|dx=" + Math.round(offsetX),
+        payload: payloadEntry
       });
     } catch (error) {
       failed += 1;
