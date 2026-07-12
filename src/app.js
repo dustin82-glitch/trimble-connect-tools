@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-19";
+const BUILD_VERSION = "20260712-20";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -514,6 +514,26 @@ async function addHelloWorldTestMarkup() {
   if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
 
   const statusEl = document.getElementById("status");
+  const propertyName = document.getElementById("propertyName").value.trim();
+  if (!propertyName) {
+    statusEl.textContent = "Select a property first, then click Add Selected Value Test.";
+    return;
+  }
+
+  const selection = await apiRef.viewer.getSelection();
+  const items = await getSelectionItems(selection);
+  if (!items.length) {
+    statusEl.textContent = "No selected objects found. Select parts first.";
+    return;
+  }
+
+  // Use first selected item for fixed-coordinate test text.
+  const sampleItem = items[0];
+  const objectProperties = await apiRef.viewer.getObjectProperties(sampleItem.modelId, [sampleItem.objectRuntimeId]);
+  const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+  const match = findPropertyValue(objectData, propertyName);
+  const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
+
   const x = HELLO_WORLD_ORIGIN_X_MM;
   const y = HELLO_WORLD_ORIGIN_Y_MM;
   const z = HELLO_WORLD_ORIGIN_Z_MM - HELLO_WORLD_OFFSET_BELOW_MM;
@@ -522,7 +542,7 @@ async function addHelloWorldTestMarkup() {
     {
       start: toWorldPick(x, y, z),
       end: toWorldPick(x + HELLO_WORLD_END_OFFSET_X_MM, y, z),
-      text: "Hello World",
+      text: textValue,
       color: { r: 255, g: 128, b: 0, a: 255 }
     }
   ];
@@ -530,13 +550,13 @@ async function addHelloWorldTestMarkup() {
   try {
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " Hello World test markup at fixed coordinate (Z-500mm).";
-    renderDebugRows("hello-world-test", [
+    statusEl.textContent = "Placed " + created + " fixed-coordinate test markup using property '" + propertyName + "'.";
+    renderDebugRows("fixed-value-test", [
       {
         modelId: "world",
         objectRuntimeId: "n/a",
-        value: "x=" + x + ", y=" + y + ", z=" + z,
-        status: "hello-world-added"
+        value: textValue,
+        status: "value-from-selection | x=" + x + ", y=" + y + ", z=" + z + " | sourceId=" + sampleItem.objectRuntimeId
       }
     ], 1, 1);
   } catch (error) {
