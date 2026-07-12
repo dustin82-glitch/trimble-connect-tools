@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-27";
+const BUILD_VERSION = "20260712-29";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -731,65 +731,111 @@ async function addAssemblyMarkCogMarkup() {
   const selection = await apiRef.viewer.getSelection();
   const items = await getSelectionItems(selection);
   if (!items.length) {
-    statusEl.textContent = "No selected objects found. Select one part first.";
+    statusEl.textContent = "No selected objects found. Select one or more parts first.";
     return;
   }
 
-  const item = items[0];
+  const applyItems = items.slice(0, 25);
+  const payload = [];
+  const debugRows = [];
+  let skipped = 0;
+  let failed = 0;
+  let firstError = "";
 
-  try {
-    const source = await resolveAssemblyLabelSource(item);
-    if (!source.data) {
-      statusEl.textContent = "Selected object has no properties.";
-      return;
-    }
+  for (const item of applyItems) {
+    try {
+      const selectedProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+      const selectedObjectData = selectedProperties && selectedProperties.length ? selectedProperties[0] : null;
+      if (!selectedObjectData) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "n/a",
+          status: "no-properties"
+        });
+        continue;
+      }
 
-    const x = source.data.x;
-    const y = source.data.y;
-    const z = source.data.z;
-    const textValue = source.data.textValue;
+      const selectedData = readAssemblyMarkAndCog(selectedObjectData);
+      const x = selectedData.x;
+      const y = selectedData.y;
+      const z = selectedData.z;
 
-    if (x === null || y === null || z === null) {
-      renderDebugRows("assemblymark-cog", [
-        {
-          modelId: source.modelId,
-          objectRuntimeId: source.objectRuntimeId,
-          value: "cogX=" + String(source.data.raw.cogX) + ", cogY=" + String(source.data.raw.cogY) + ", cogZ=" + String(source.data.raw.cogZ),
-          status: "missing-cog|source=" + source.source
-        }
-      ], items.length, 1);
-      statusEl.textContent = "Could not parse centerofgravityx/y/z from selected object properties.";
-      return;
-    }
+      if (x === null || y === null || z === null) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "cogX=" + String(selectedData.raw.cogX) + ", cogY=" + String(selectedData.raw.cogY) + ", cogZ=" + String(selectedData.raw.cogZ),
+          status: "missing-assembly-cog"
+        });
+        continue;
+      }
 
-    const startPick = toMarkupPick({ x, y, z }, source.modelId, source.objectRuntimeId);
-    const endPick = {
-      ...startPick,
-      positionX: startPick.positionX + MARKUP_MIN_OFFSET_MM
-    };
+      const textSource = await resolveAssemblyLabelSource(item);
+      if (!textSource.data) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "n/a",
+          status: "missing-text-source"
+        });
+        continue;
+      }
 
-    const payload = [
-      {
+      const textValue = textSource.data.textValue;
+      const startPick = toMarkupPick({ x, y, z }, item.modelId, item.objectRuntimeId);
+      const endPick = {
+        ...startPick,
+        positionX: startPick.positionX + MARKUP_MIN_OFFSET_MM
+      };
+
+      payload.push({
         start: startPick,
         end: endPick,
         text: textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
-      }
-    ];
+      });
 
-    renderDebugRows("assemblymark-cog", [
-      {
-        modelId: source.modelId,
-        objectRuntimeId: source.objectRuntimeId,
+      const payloadEntry = payload[payload.length - 1];
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: "assemblymark-cog|source=" + source.source,
-        payload: payload[0]
+        status: "assembly-cog|text-source=" + textSource.source,
+        payload: payloadEntry
+      });
+    } catch (error) {
+      failed += 1;
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: "n/a",
+        status: "error"
+      });
+      if (!firstError) {
+        firstError = error && error.message ? error.message : String(error);
       }
-    ], items.length, 1);
+    }
+  }
 
+  renderDebugRows("assemblymark-cog", debugRows, items.length, applyItems.length);
+
+  if (!payload.length) {
+    statusEl.textContent = "No AssemblyMark COG markups created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
+    return;
+  }
+
+  try {
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " AssemblyMark COG markup from selected object.";
+    if (items.length > applyItems.length) {
+      statusEl.textContent = "Placed " + created + " AssemblyMark COG markups (limited to first " + applyItems.length + "). Skipped: " + skipped + ", Failed: " + failed + ".";
+    } else {
+      statusEl.textContent = "Placed " + created + " AssemblyMark COG markups. Skipped: " + skipped + ", Failed: " + failed + ".";
+    }
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "AssemblyMark COG markup failed: " + message;
