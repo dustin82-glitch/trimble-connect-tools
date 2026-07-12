@@ -1,7 +1,11 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-17";
+const BUILD_VERSION = "20260712-18";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
+const SELECTION_MONITOR_MS = 1200;
+
+let selectionMonitorHandle = null;
+let lastSelectionSignature = "";
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -265,6 +269,62 @@ function initializeDebugPanel() {
   listEl.appendChild(li);
 }
 
+function getSelectionSignature(selection) {
+  try {
+    return JSON.stringify(selection || []);
+  } catch {
+    return String(Date.now());
+  }
+}
+
+async function refreshSelectionDebugFromViewer() {
+  if (!apiRef || !apiRef.viewer || !apiRef.viewer.getSelection) return;
+
+  const selection = await apiRef.viewer.getSelection();
+  const signature = getSelectionSignature(selection);
+  if (signature === lastSelectionSignature) return;
+  lastSelectionSignature = signature;
+
+  const totalSelected = Array.isArray(selection) ? selection.length : 0;
+  const items = await getSelectionItems(selection);
+
+  if (!items.length) {
+    const rawEntry = selection && selection.length ? selection[0] : null;
+    renderDebugRows("", [
+      {
+        modelId: rawEntry && rawEntry.modelId ? rawEntry.modelId : "n/a",
+        objectRuntimeId: "n/a",
+        value: rawEntry ? "selection keys: " + Object.keys(rawEntry).join(",") : "no selection",
+        status: "selection-monitor"
+      }
+    ], totalSelected, 10);
+    return;
+  }
+
+  const rows = items.slice(0, 10).map(item => ({
+    modelId: item.modelId,
+    objectRuntimeId: item.objectRuntimeId,
+    value: "selected",
+    status: "selection-monitor"
+  }));
+  renderDebugRows("", rows, items.length, 10);
+}
+
+function startSelectionMonitor() {
+  if (selectionMonitorHandle) {
+    clearInterval(selectionMonitorHandle);
+    selectionMonitorHandle = null;
+  }
+
+  selectionMonitorHandle = setInterval(async () => {
+    try {
+      await refreshSelectionDebugFromViewer();
+    } catch {
+      // Keep monitor resilient if host rejects transient selection queries.
+    }
+  }, SELECTION_MONITOR_MS);
+}
+
 async function refreshPropertyDropdown(statusEl) {
   if (!apiRef || !supportsViewerMarkup(apiRef)) return [];
 
@@ -482,6 +542,9 @@ async function initExtension() {
       propertySelect.disabled = false;
       refreshBtn.disabled = false;
       applyBtn.disabled = false;
+
+      await refreshSelectionDebugFromViewer();
+      startSelectionMonitor();
 
       refreshBtn.addEventListener("click", async () => {
         refreshBtn.disabled = true;
