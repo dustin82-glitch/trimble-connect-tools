@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-25";
+const BUILD_VERSION = "20260712-26";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -110,6 +110,16 @@ function toDisplayValue(value) {
     }
   }
   return String(value);
+}
+
+function toNumericValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).replace(/,/g, "");
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const numeric = Number(match[0]);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function findPropertyValue(objectProperties, propertyName) {
@@ -560,6 +570,86 @@ async function addHelloWorldTestMarkup() {
   }
 }
 
+async function addAssemblyMarkCogMarkup() {
+  if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
+
+  const statusEl = document.getElementById("status");
+  const selection = await apiRef.viewer.getSelection();
+  const items = await getSelectionItems(selection);
+  if (!items.length) {
+    statusEl.textContent = "No selected objects found. Select one part first.";
+    return;
+  }
+
+  const item = items[0];
+
+  try {
+    const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+    const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+    if (!objectData) {
+      statusEl.textContent = "Selected object has no properties.";
+      return;
+    }
+
+    const assemblyMark = findPropertyValue(objectData, "AssemblyMark");
+    const cogX = findPropertyValue(objectData, "centerofgravityx");
+    const cogY = findPropertyValue(objectData, "centerofgravityy");
+    const cogZ = findPropertyValue(objectData, "centerofgravityz");
+
+    const x = toNumericValue(cogX.value);
+    const y = toNumericValue(cogY.value);
+    const z = toNumericValue(cogZ.value);
+    const textValue = assemblyMark.value === null || assemblyMark.value === undefined || assemblyMark.value === ""
+      ? "N/A"
+      : String(assemblyMark.value);
+
+    if (x === null || y === null || z === null) {
+      renderDebugRows("assemblymark-cog", [
+        {
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "cogX=" + String(cogX.value) + ", cogY=" + String(cogY.value) + ", cogZ=" + String(cogZ.value),
+          status: "missing-cog"
+        }
+      ], items.length, 1);
+      statusEl.textContent = "Could not parse centerofgravityx/y/z from selected object properties.";
+      return;
+    }
+
+    const startPick = toMarkupPick({ x, y, z }, item.modelId, item.objectRuntimeId);
+    const endPick = {
+      ...startPick,
+      positionX: startPick.positionX + MARKUP_MIN_OFFSET_MM
+    };
+
+    const payload = [
+      {
+        start: startPick,
+        end: endPick,
+        text: textValue,
+        color: { r: 0, g: 112, b: 192, a: 255 }
+      }
+    ];
+
+    renderDebugRows("assemblymark-cog", [
+      {
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: textValue,
+        status: "assemblymark-cog",
+        payload: payload[0]
+      }
+    ], items.length, 1);
+
+    const added = await apiRef.markup.addTextMarkup(payload);
+    const created = Array.isArray(added) ? added.length : payload.length;
+    statusEl.textContent = "Placed " + created + " AssemblyMark COG markup from selected object.";
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    statusEl.textContent = "AssemblyMark COG markup failed: " + message;
+  }
+}
+
 async function initExtension() {
   const statusEl = document.getElementById("status");
   const hostEl = document.getElementById("host");
@@ -569,6 +659,7 @@ async function initExtension() {
   const refreshBtn = document.getElementById("refreshPropertiesBtn");
   const applyBtn = document.getElementById("applyPropertyBtn");
   const helloWorldBtn = document.getElementById("addHelloWorldBtn");
+  const assemblyMarkCogBtn = document.getElementById("addAssemblyMarkCogBtn");
   initializeDebugPanel();
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
@@ -608,6 +699,7 @@ async function initExtension() {
       refreshBtn.disabled = false;
       applyBtn.disabled = false;
       helloWorldBtn.disabled = false;
+      assemblyMarkCogBtn.disabled = false;
 
       await refreshSelectionDebugFromViewer();
       startSelectionMonitor();
@@ -653,9 +745,22 @@ async function initExtension() {
           helloWorldBtn.disabled = false;
         }
       });
+
+      assemblyMarkCogBtn.addEventListener("click", async () => {
+        assemblyMarkCogBtn.disabled = true;
+        try {
+          await addAssemblyMarkCogMarkup();
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = "Failed while placing AssemblyMark COG markup.";
+        } finally {
+          assemblyMarkCogBtn.disabled = false;
+        }
+      });
     } else {
       applyBtn.disabled = true;
       helloWorldBtn.disabled = true;
+      assemblyMarkCogBtn.disabled = true;
       statusEl.textContent = "Connected to Workspace API, but viewer markup methods are unavailable in this host.";
     }
   } catch (error) {
