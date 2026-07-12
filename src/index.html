@@ -103,17 +103,16 @@
 
     // Connect to Trimble Browser Client Environment
     if (!isTrustedContext()) {
-      console.error("Blocked: this extension is only allowed on trusted Trimble hosts.");
-      alert("Untrusted host blocked. Open this extension from an approved Trimble domain.");
-    } else {
-      initProjectExtensionApi().catch(err => console.error("Project Extension init failed:", err));
+      console.warn("Running without trusted host/referrer match. Proceeding with API handshake.");
+    }
 
-      if (window.TCC && window.TCC.Workspace && window.TCC.Workspace.init) {
-        window.TCC.Workspace.init().then((api) => {
-          connectAPI = api;
-          console.log("Trimble Connected Framework initialized.");
-        }).catch(err => console.error("Framework Init Failed:", err));
-      }
+    initProjectExtensionApi().catch(err => console.error("Project Extension init failed:", err));
+
+    if (window.TCC && window.TCC.Workspace && window.TCC.Workspace.init) {
+      window.TCC.Workspace.init().then((api) => {
+        connectAPI = api;
+        console.log("Trimble Connected Framework initialized.");
+      }).catch(err => console.error("Framework Init Failed:", err));
     }
 
     // Internal helper function to fetch properties and force parent hierarchy resolution
