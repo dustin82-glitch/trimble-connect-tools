@@ -1,8 +1,13 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-18";
+const BUILD_VERSION = "20260712-19";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
+const HELLO_WORLD_ORIGIN_X_MM = 279394711;
+const HELLO_WORLD_ORIGIN_Y_MM = 5788564212;
+const HELLO_WORLD_ORIGIN_Z_MM = 23084;
+const HELLO_WORLD_OFFSET_BELOW_MM = 500;
+const HELLO_WORLD_END_OFFSET_X_MM = 500;
 
 let selectionMonitorHandle = null;
 let lastSelectionSignature = "";
@@ -163,6 +168,15 @@ function getMarkupOffsetX(boundingBox) {
   if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
   const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
   return Math.max(MARKUP_MIN_OFFSET_MM, sizeX / 2 + MARKUP_CLEARANCE_MM);
+}
+
+function toWorldPick(x, y, z) {
+  return {
+    positionX: x,
+    positionY: y,
+    positionZ: z,
+    type: "point"
+  };
 }
 
 function getRuntimeIdsFromSelectionEntry(modelSelection) {
@@ -496,6 +510,41 @@ async function applyPropertyToSelection() {
   }
 }
 
+async function addHelloWorldTestMarkup() {
+  if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
+
+  const statusEl = document.getElementById("status");
+  const x = HELLO_WORLD_ORIGIN_X_MM;
+  const y = HELLO_WORLD_ORIGIN_Y_MM;
+  const z = HELLO_WORLD_ORIGIN_Z_MM - HELLO_WORLD_OFFSET_BELOW_MM;
+
+  const payload = [
+    {
+      start: toWorldPick(x, y, z),
+      end: toWorldPick(x + HELLO_WORLD_END_OFFSET_X_MM, y, z),
+      text: "Hello World",
+      color: { r: 255, g: 128, b: 0, a: 255 }
+    }
+  ];
+
+  try {
+    const added = await apiRef.markup.addTextMarkup(payload);
+    const created = Array.isArray(added) ? added.length : payload.length;
+    statusEl.textContent = "Placed " + created + " Hello World test markup at fixed coordinate (Z-500mm).";
+    renderDebugRows("hello-world-test", [
+      {
+        modelId: "world",
+        objectRuntimeId: "n/a",
+        value: "x=" + x + ", y=" + y + ", z=" + z,
+        status: "hello-world-added"
+      }
+    ], 1, 1);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    statusEl.textContent = "Hello World markup failed: " + message;
+  }
+}
+
 async function initExtension() {
   const statusEl = document.getElementById("status");
   const hostEl = document.getElementById("host");
@@ -504,6 +553,7 @@ async function initExtension() {
   const propertySelect = document.getElementById("propertyName");
   const refreshBtn = document.getElementById("refreshPropertiesBtn");
   const applyBtn = document.getElementById("applyPropertyBtn");
+  const helloWorldBtn = document.getElementById("addHelloWorldBtn");
   initializeDebugPanel();
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
@@ -542,6 +592,7 @@ async function initExtension() {
       propertySelect.disabled = false;
       refreshBtn.disabled = false;
       applyBtn.disabled = false;
+      helloWorldBtn.disabled = false;
 
       await refreshSelectionDebugFromViewer();
       startSelectionMonitor();
@@ -575,8 +626,21 @@ async function initExtension() {
           applyBtn.disabled = false;
         }
       });
+
+      helloWorldBtn.addEventListener("click", async () => {
+        helloWorldBtn.disabled = true;
+        try {
+          await addHelloWorldTestMarkup();
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = "Failed while placing Hello World test markup.";
+        } finally {
+          helloWorldBtn.disabled = false;
+        }
+      });
     } else {
       applyBtn.disabled = true;
+      helloWorldBtn.disabled = true;
       statusEl.textContent = "Connected to Workspace API, but viewer markup methods are unavailable in this host.";
     }
   } catch (error) {
