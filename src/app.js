@@ -179,13 +179,11 @@ async function refreshPropertyDropdown(statusEl) {
   }
 
   const names = new Set();
-  // Cap scan size to avoid flooding the host and destabilizing large selections.
-  const sampleItems = items.slice(0, 30);
-  for (const item of sampleItems) {
-    const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
-    const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
-    if (!objectData) continue;
-
+  // Load names from only the first selected object to keep host calls minimal.
+  const sampleItem = items[0];
+  const objectProperties = await apiRef.viewer.getObjectProperties(sampleItem.modelId, [sampleItem.objectRuntimeId]);
+  const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+  if (objectData) {
     const flattened = flattenProperties(objectData);
     for (const property of flattened) {
       if (property && property.name) names.add(String(property.name));
@@ -198,8 +196,7 @@ async function refreshPropertyDropdown(statusEl) {
   if (!propertyNames.length) {
     statusEl.textContent = "No properties found on current selection.";
   } else {
-    const suffix = items.length > sampleItems.length ? " (sampled first " + sampleItems.length + " items)" : "";
-    statusEl.textContent = "Loaded " + propertyNames.length + " properties from selection" + suffix + ".";
+    statusEl.textContent = "Loaded " + propertyNames.length + " properties from first selected part.";
   }
 
   return propertyNames;
@@ -225,7 +222,7 @@ async function applyPropertyToSelection() {
 
   let created = 0;
   // Apply to a bounded amount per click to keep the 3D host responsive.
-  const applyItems = items.slice(0, 100);
+  const applyItems = items.slice(0, 25);
   for (const item of applyItems) {
     const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
     const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
@@ -349,15 +346,8 @@ async function initExtension() {
         }
       });
 
-      try {
-        const initialProperties = await refreshPropertyDropdown(statusEl);
-        if (initialProperties.length) {
-          statusEl.textContent = "Connected via " + apiFlavor + " API. Property list loaded.";
-        }
-        applyBtn.disabled = initialProperties.length === 0;
-      } catch {
-        applyBtn.disabled = true;
-      }
+      applyBtn.disabled = true;
+      statusEl.textContent = "Connected via " + apiFlavor + " API. Select parts and click Refresh Properties.";
 
       applyBtn.addEventListener("click", async () => {
         applyBtn.disabled = true;
