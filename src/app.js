@@ -130,6 +130,30 @@ function setPropertyDropdownOptions(selectEl, propertyNames) {
   selectEl.value = preferred || propertyNames[0];
 }
 
+function renderDebugRows(propertyName, rows, totalSelected, maxShown) {
+  const summaryEl = document.getElementById("debugSummary");
+  const listEl = document.getElementById("debugList");
+  if (!summaryEl || !listEl) return;
+
+  listEl.innerHTML = "";
+  const shown = rows.length;
+  const label = propertyName ? propertyName : "(none)";
+  summaryEl.textContent = "Property: " + label + " | Showing " + shown + " of " + totalSelected + " selected" + (totalSelected > maxShown ? " (limited)" : "") + ".";
+
+  if (!rows.length) {
+    const li = document.createElement("li");
+    li.textContent = "No selected items to display.";
+    listEl.appendChild(li);
+    return;
+  }
+
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.textContent = "model=" + row.modelId + " | id=" + row.objectRuntimeId + " | value=" + row.value + " | status=" + row.status;
+    listEl.appendChild(li);
+  }
+}
+
 async function refreshPropertyDropdown(statusEl) {
   if (!apiRef || !supportsViewerMarkup(apiRef)) return [];
 
@@ -189,6 +213,7 @@ async function applyPropertyToSelection() {
   let skipped = 0;
   let failed = 0;
   const payload = [];
+  const debugRows = [];
   let firstError = "";
   // Apply to a bounded amount per click to keep the 3D host responsive.
   const applyItems = items.slice(0, 25);
@@ -198,6 +223,12 @@ async function applyPropertyToSelection() {
       const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
       if (!objectData) {
         skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "n/a",
+          status: "no-properties"
+        });
         continue;
       }
 
@@ -209,6 +240,12 @@ async function applyPropertyToSelection() {
       const center = centerOfBox(boxData);
       if (!center) {
         skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: textValue,
+          status: "no-bounding-box"
+        });
         continue;
       }
 
@@ -224,13 +261,27 @@ async function applyPropertyToSelection() {
         text: propertyName + ": " + textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
       });
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: textValue,
+        status: "queued"
+      });
     } catch (error) {
       failed += 1;
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: "n/a",
+        status: "error"
+      });
       if (!firstError) {
         firstError = error && error.message ? error.message : String(error);
       }
     }
   }
+
+  renderDebugRows(propertyName, debugRows, items.length, applyItems.length);
 
   if (!payload.length) {
     statusEl.textContent = "No markups created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";

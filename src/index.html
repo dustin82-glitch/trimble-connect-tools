@@ -116,6 +116,31 @@
       opacity: 0.6;
       cursor: not-allowed;
     }
+    .debug {
+      margin-top: 14px;
+      border-top: 1px solid #d8e4ef;
+      padding-top: 12px;
+    }
+    .debug-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #44596b;
+      margin-bottom: 6px;
+    }
+    .debug-summary {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .debug-list {
+      margin: 0;
+      padding-left: 18px;
+      max-height: 180px;
+      overflow: auto;
+      font-size: 12px;
+      color: #2a3f52;
+      line-height: 1.35;
+    }
   </style>
 </head>
 <body>
@@ -141,6 +166,11 @@
         <button id="refreshPropertiesBtn" type="button" disabled>Refresh Properties</button>
         <button id="applyPropertyBtn" type="button" disabled>Apply To Selection</button>
       </div>
+    </div>
+    <div class="debug">
+      <div class="debug-title">Selection Debug</div>
+      <div class="debug-summary" id="debugSummary">No debug data yet.</div>
+      <ul class="debug-list" id="debugList"></ul>
     </div>
   </div>
 
