@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://components.connect.trimble.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
   <title>Trimble Connect Assembly Automation Suite</title>
-  <!-- Load official modern Trimble Workspace ESM bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/trimble-connect-workspace-api@1/dist/index.min.js"></script>
+  <!-- Load official Trimble Workspace API bundle -->
+  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 14px; margin: 0; background: #fafafa; color: #333; }
     h3 { margin-top: 0; font-size: 14px; border-bottom: 2px solid #0070c0; padding-bottom: 4px; color: #0070c0; }
@@ -47,6 +47,7 @@
 
   <script>
     let connectAPI = null;
+    let workspaceAPI = null;
     const TRUSTED_HOST_PATTERN = /(^|\.)trimble\.com$|(^|\.)trimblepaas\.com$/i;
 
     function isTrustedHost() {
@@ -68,15 +69,51 @@
       return isTrustedHost() || isTrustedReferrer();
     }
 
+    async function registerProjectMenu(api) {
+      const menu = {
+        title: "Trimble Connect Tools",
+        icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
+        command: "trimble_tools",
+        subMenus: [
+          {
+            title: "Assembly Tools",
+            command: "trimble_tools_home"
+          }
+        ]
+      };
+
+      await api.ui.setMenu(menu);
+      await api.ui.setActiveMenuItem("trimble_tools_home");
+    }
+
+    async function initProjectExtensionApi() {
+      if (!window.TrimbleConnectWorkspace || !window.TrimbleConnectWorkspace.connect) {
+        return;
+      }
+
+      workspaceAPI = await window.TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
+        if (event === "extension.command") {
+          console.log("Extension command:", args && args.data ? args.data : args);
+        }
+      }, 30000);
+
+      await registerProjectMenu(workspaceAPI);
+      console.log("Project extension API initialized.");
+    }
+
     // Connect to Trimble Browser Client Environment
     if (!isTrustedContext()) {
       console.error("Blocked: this extension is only allowed on trusted Trimble hosts.");
       alert("Untrusted host blocked. Open this extension from an approved Trimble domain.");
     } else {
-      window.TCC.Workspace.init().then((api) => {
-        connectAPI = api;
-        console.log("Trimble Connected Framework initialized.");
-      }).catch(err => console.error("Framework Init Failed:", err));
+      initProjectExtensionApi().catch(err => console.error("Project Extension init failed:", err));
+
+      if (window.TCC && window.TCC.Workspace && window.TCC.Workspace.init) {
+        window.TCC.Workspace.init().then((api) => {
+          connectAPI = api;
+          console.log("Trimble Connected Framework initialized.");
+        }).catch(err => console.error("Framework Init Failed:", err));
+      }
     }
 
     // Internal helper function to fetch properties and force parent hierarchy resolution
