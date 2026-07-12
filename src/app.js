@@ -33,11 +33,7 @@ async function connectWorkspaceApiWithFallbacks(statusEl) {
     ? window.TrimbleConnectWorkspace.connect
     : null;
 
-  const legacyConnect = window.ProjectWorkspaceAPI && window.ProjectWorkspaceAPI.connect
-    ? window.ProjectWorkspaceAPI.connect
-    : null;
-
-  if (!modernConnect && !legacyConnect) {
+  if (!modernConnect) {
     throw new Error("No Trimble API connectors found on window.");
   }
 
@@ -59,40 +55,11 @@ async function connectWorkspaceApiWithFallbacks(statusEl) {
     }
   }
 
-  if (legacyConnect) {
-    for (const candidate of candidates) {
-      if (!candidate.target) continue;
-
-      statusEl.textContent = "Connecting via legacy API (" + candidate.name + ")...";
-      try {
-        const api = await connectWithTimeout(legacyConnect, candidate.target, 10000);
-        return { api, flavor: "legacy" };
-      } catch (error) {
-        const message = error && error.message ? error.message : String(error);
-        errors.push("legacy " + candidate.name + ": " + message);
-        await sleep(150);
-      }
-    }
-  }
-
   throw new Error("Connection failed. " + errors.join(" | "));
 }
 
 function supportsViewerMarkup(api) {
   return !!(api && api.viewer && api.viewer.getSelection && api.viewer.getObjectProperties && api.viewer.getObjectBoundingBoxes && api.markup && api.markup.addTextMarkup);
-}
-
-async function registerMenuIfAvailable(api) {
-  if (!api || !api.ui || !api.ui.setMenu) return;
-  await api.ui.setMenu({
-    title: "Hello World",
-    icon: "https://dustin82-glitch.github.io/trimble-connect-tools/icon.svg",
-    command: "hello_world",
-    subMenus: [{ title: "Home", command: "hello_world_home" }]
-  });
-  if (api.ui.setActiveMenuItem) {
-    await api.ui.setActiveMenuItem("hello_world_home");
-  }
 }
 
 function flattenProperties(objectProperties) {
@@ -270,8 +237,7 @@ async function initExtension() {
   const applyBtn = document.getElementById("applyPropertyBtn");
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
-  const hasLegacy = !!(window.ProjectWorkspaceAPI && window.ProjectWorkspaceAPI.connect);
-  if (!hasModern && !hasLegacy) {
+  if (!hasModern) {
     statusEl.textContent = "No supported Trimble API bundle available.";
     return;
   }
@@ -283,46 +249,24 @@ async function initExtension() {
     apiRef = api;
 
     try {
-      await registerMenuIfAvailable(api);
-    } catch (menuError) {
-      console.warn("Menu registration skipped:", menuError);
+      const host = await api.extension.getHost();
+      hostEl.textContent = host && host.name ? host.name : "modern";
+    } catch {
+      hostEl.textContent = "modern";
     }
 
-    if (apiFlavor === "modern") {
-      try {
-        const host = await api.extension.getHost();
-        hostEl.textContent = host && host.name ? host.name : "modern";
-      } catch {
-        hostEl.textContent = "modern";
-      }
+    try {
+      const project = await api.project.getProject();
+      projectEl.textContent = project && project.name ? project.name : "unknown";
+    } catch {
+      projectEl.textContent = "unknown";
+    }
 
-      try {
-        const project = await api.project.getProject();
-        projectEl.textContent = project && project.name ? project.name : "unknown";
-      } catch {
-        projectEl.textContent = "unknown";
-      }
-
-      try {
-        const user = await api.user.getUser();
-        userEl.textContent = user && user.email ? user.email : (user && user.name ? user.name : "unknown");
-      } catch {
-        userEl.textContent = "unknown";
-      }
-    } else {
-      hostEl.textContent = "legacy";
-      try {
-        const project = await api.project.getCurrentProject();
-        projectEl.textContent = project && project.name ? project.name : "unknown";
-      } catch {
-        projectEl.textContent = "unknown";
-      }
-      try {
-        const userSettings = await api.user.getUserSettings();
-        userEl.textContent = userSettings && userSettings.language ? "lang: " + userSettings.language : "legacy";
-      } catch {
-        userEl.textContent = "legacy";
-      }
+    try {
+      const user = await api.user.getUser();
+      userEl.textContent = user && user.email ? user.email : (user && user.name ? user.name : "unknown");
+    } catch {
+      userEl.textContent = "unknown";
     }
 
     if (supportsViewerMarkup(api)) {
