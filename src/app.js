@@ -96,8 +96,7 @@ function toMarkupPick(position, modelId, objectId) {
     positionY: position.y,
     positionZ: position.z,
     modelId,
-    objectId: Number(objectId),
-    type: "point"
+    objectId: Number(objectId)
   };
 }
 
@@ -187,42 +186,72 @@ async function applyPropertyToSelection() {
   }
 
   let created = 0;
+  let skipped = 0;
+  let failed = 0;
+  const payload = [];
+  let firstError = "";
   // Apply to a bounded amount per click to keep the 3D host responsive.
   const applyItems = items.slice(0, 25);
   for (const item of applyItems) {
-    const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
-    const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
-    if (!objectData) continue;
+    try {
+      const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+      const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+      if (!objectData) {
+        skipped += 1;
+        continue;
+      }
 
-    const value = findPropertyValue(objectData, propertyName);
-    const textValue = value === null || value === undefined || value === "" ? "N/A" : String(value);
+      const value = findPropertyValue(objectData, propertyName);
+      const textValue = value === null || value === undefined || value === "" ? "N/A" : String(value);
 
-    const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
-    const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-    const center = centerOfBox(boxData);
-    if (!center) continue;
+      const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+      const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+      const center = centerOfBox(boxData);
+      if (!center) {
+        skipped += 1;
+        continue;
+      }
 
-    const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-    const endPick = {
-      ...startPick,
-      positionX: startPick.positionX + 1
-    };
+      const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+      const endPick = {
+        ...startPick,
+        positionX: startPick.positionX + 1
+      };
 
-    await apiRef.markup.addTextMarkup([
-      {
+      payload.push({
         start: startPick,
         end: endPick,
         text: propertyName + ": " + textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
+      });
+    } catch (error) {
+      failed += 1;
+      if (!firstError) {
+        firstError = error && error.message ? error.message : String(error);
       }
-    ]);
-    created += 1;
+    }
   }
 
+  if (!payload.length) {
+    statusEl.textContent = "No markups created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
+    return;
+  }
+
+  let added = [];
+  try {
+    added = await apiRef.markup.addTextMarkup(payload);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    statusEl.textContent = "addTextMarkup failed: " + message;
+    return;
+  }
+
+  created = Array.isArray(added) ? added.length : payload.length;
+
   if (items.length > applyItems.length) {
-    statusEl.textContent = "Placed text on " + created + " part(s) (limited to first " + applyItems.length + " selected).";
+    statusEl.textContent = "Placed " + created + " markups (limited to first " + applyItems.length + "). Skipped: " + skipped + ", Failed: " + failed + ".";
   } else {
-    statusEl.textContent = "Placed text on " + created + " selected part(s).";
+    statusEl.textContent = "Placed " + created + " markups. Skipped: " + skipped + ", Failed: " + failed + ".";
   }
 }
 
