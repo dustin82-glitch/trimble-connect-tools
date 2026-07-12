@@ -1,5 +1,6 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-14";
+const BUILD_VERSION = "20260712-16";
+const MARKUP_X_OFFSET = 0.1;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -372,13 +373,13 @@ async function applyPropertyToSelection() {
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
       const endPick = {
         ...startPick,
-        positionX: startPick.positionX + 1
+        positionX: startPick.positionX + MARKUP_X_OFFSET
       };
 
       payload.push({
         start: startPick,
         end: endPick,
-        text: propertyName + ": " + textValue,
+        text: textValue,
         color: { r: 0, g: 112, b: 192, a: 255 }
       });
       debugRows.push({
