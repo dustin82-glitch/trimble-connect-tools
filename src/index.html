@@ -75,6 +75,46 @@
       font-weight: 600;
       margin-right: 6px;
     }
+    .tools {
+      margin-top: 16px;
+      border-top: 1px solid #d8e4ef;
+      padding-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .tools label {
+      font-size: 12px;
+      color: #44596b;
+      font-weight: 600;
+    }
+    .tools-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tools input {
+      flex: 1 1 240px;
+      min-width: 220px;
+      border: 1px solid #b8ccdd;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 14px;
+      color: var(--ink);
+    }
+    .tools button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--brand);
+      cursor: pointer;
+    }
+    .tools button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -91,14 +131,114 @@
       <div><span class="label">Project:</span><span id="project">unknown</span></div>
       <div><span class="label">User:</span><span id="user">unknown</span></div>
     </div>
+    <div class="tools">
+      <label for="propertyName">Property name to place on selected parts</label>
+      <div class="tools-row">
+        <input id="propertyName" type="text" value="Assembly Pos" placeholder="Example: Assembly Pos">
+        <button id="applyPropertyBtn" type="button" disabled>Apply To Selection</button>
+      </div>
+    </div>
   </div>
 
   <script>
+    let apiRef = null;
+
+    function flattenProperties(objectProperties) {
+      const sets = objectProperties && objectProperties.properties ? objectProperties.properties : [];
+      const all = [];
+      for (const set of sets) {
+        const properties = set && set.properties ? set.properties : [];
+        for (const property of properties) all.push(property);
+      }
+      return all;
+    }
+
+    function findPropertyValue(objectProperties, propertyName) {
+      const wanted = String(propertyName || "").trim().toLowerCase();
+      if (!wanted) return null;
+      const properties = flattenProperties(objectProperties);
+      for (const property of properties) {
+        if (String(property.name).toLowerCase() === wanted) return property.value;
+      }
+      return null;
+    }
+
+    function centerOfBox(boundingBox) {
+      if (!boundingBox || !boundingBox.min || !boundingBox.max) return null;
+      return {
+        x: (boundingBox.min.x + boundingBox.max.x) / 2,
+        y: (boundingBox.min.y + boundingBox.max.y) / 2,
+        z: (boundingBox.min.z + boundingBox.max.z) / 2
+      };
+    }
+
+    function toMarkupPick(position, modelId, objectId) {
+      return {
+        positionX: position.x,
+        positionY: position.y,
+        positionZ: position.z,
+        modelId,
+        objectId
+      };
+    }
+
+    async function applyPropertyToSelection() {
+      if (!apiRef) return;
+
+      const statusEl = document.getElementById("status");
+      const propertyName = document.getElementById("propertyName").value.trim();
+      if (!propertyName) {
+        statusEl.textContent = "Enter a property name first.";
+        return;
+      }
+
+      const selection = await apiRef.viewer.getSelection();
+      const items = [];
+      for (const modelSelection of selection || []) {
+        const ids = modelSelection.objectRuntimeIds || [];
+        for (const id of ids) items.push({ modelId: modelSelection.modelId, objectRuntimeId: id });
+      }
+
+      if (!items.length) {
+        statusEl.textContent = "No objects selected in the 3D viewer.";
+        return;
+      }
+
+      let created = 0;
+      for (const item of items) {
+        const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+        const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+        if (!objectData) continue;
+
+        const value = findPropertyValue(objectData, propertyName);
+        const textValue = value === null || value === undefined || value === "" ? "N/A" : String(value);
+
+        const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+        const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+        const center = centerOfBox(boxData);
+        if (!center) continue;
+
+        const pick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+        await apiRef.markup.addTextMarkup([
+          {
+            start: pick,
+            end: pick,
+            text: propertyName + ": " + textValue,
+            color: { r: 0, g: 112, b: 192, a: 255 }
+          }
+        ]);
+        created += 1;
+      }
+
+      statusEl.textContent = "Placed text on " + created + " selected part(s).";
+    }
+
     async function initExtension() {
       const statusEl = document.getElementById("status");
       const hostEl = document.getElementById("host");
       const projectEl = document.getElementById("project");
       const userEl = document.getElementById("user");
+      const applyBtn = document.getElementById("applyPropertyBtn");
 
       if (!window.TrimbleConnectWorkspace || !window.TrimbleConnectWorkspace.connect) {
         statusEl.textContent = "Workspace API bundle not available";
@@ -111,6 +251,7 @@
             console.log("extension.command", args);
           }
         }, 30000);
+        apiRef = api;
 
         try {
           await api.ui.setMenu({
@@ -146,6 +287,18 @@
         }
 
         statusEl.textContent = "Connected. Hello World extension is running.";
+        applyBtn.disabled = false;
+        applyBtn.addEventListener("click", async () => {
+          applyBtn.disabled = true;
+          try {
+            await applyPropertyToSelection();
+          } catch (error) {
+            console.error(error);
+            statusEl.textContent = "Failed while placing property markups.";
+          } finally {
+            applyBtn.disabled = false;
+          }
+        });
       } catch (error) {
         console.error(error);
         statusEl.textContent = "Could not connect to Trimble Workspace API.";
