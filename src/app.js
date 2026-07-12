@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-22";
+const BUILD_VERSION = "20260712-24";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -516,76 +516,54 @@ async function addHelloWorldTestMarkup() {
     return;
   }
 
-  const payload = [];
-  const debugRows = [];
-  let skipped = 0;
-  let failed = 0;
-  let firstError = "";
-  const applyItems = items.slice(0, 25);
+  const item = items[0];
 
-  for (const item of applyItems) {
-    try {
-      const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
-      const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-      const center = centerOfBox(boxData);
-      if (!center) {
-        skipped += 1;
-        debugRows.push({
+  try {
+    const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+    const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+    const center = centerOfBox(boxData);
+    if (!center) {
+      renderDebugRows("hello-world", [
+        {
           modelId: item.modelId,
           objectRuntimeId: item.objectRuntimeId,
           value: HELLO_WORLD_TEXT,
           status: "no-bounding-box"
-        });
-        continue;
-      }
+        }
+      ], items.length, 1);
+      statusEl.textContent = "No Hello World markup created. Selected object has no bounding box.";
+      return;
+    }
 
-      const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-      const offsetX = getMarkupOffsetX(boxData);
-      const endPick = {
-        ...startPick,
-        positionX: startPick.positionX + offsetX
-      };
+    const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+    const offsetX = getMarkupOffsetX(boxData);
+    const endPick = {
+      ...startPick,
+      positionX: startPick.positionX + offsetX
+    };
 
-      payload.push({
+    const payload = [
+      {
         start: startPick,
         end: endPick,
         text: HELLO_WORLD_TEXT,
-        color: { r: 255, g: 128, b: 0, a: 255 }
-      });
-
-      const payloadEntry = payload[payload.length - 1];
-      debugRows.push({
-        modelId: item.modelId,
-        objectRuntimeId: item.objectRuntimeId,
-        value: HELLO_WORLD_TEXT,
-        status: "hello-world|dx=" + Math.round(offsetX),
-        payload: payloadEntry
-      });
-    } catch (error) {
-      failed += 1;
-      debugRows.push({
-        modelId: item.modelId,
-        objectRuntimeId: item.objectRuntimeId,
-        value: HELLO_WORLD_TEXT,
-        status: "error"
-      });
-      if (!firstError) {
-        firstError = error && error.message ? error.message : String(error);
+        color: { r: 0, g: 112, b: 192, a: 255 }
       }
-    }
-  }
+    ];
 
-  renderDebugRows("hello-world", debugRows, items.length, applyItems.length);
+    renderDebugRows("hello-world", [
+      {
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: HELLO_WORLD_TEXT,
+        status: "hello-world|single|dx=" + Math.round(offsetX),
+        payload: payload[0]
+      }
+    ], items.length, 1);
 
-  if (!payload.length) {
-    statusEl.textContent = "No Hello World markups created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
-    return;
-  }
-
-  try {
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " Hello World markups. Skipped: " + skipped + ", Failed: " + failed + ".";
+    statusEl.textContent = "Placed " + created + " Hello World markup from selected object's bounding-box center.";
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "Hello World markup failed: " + message;
