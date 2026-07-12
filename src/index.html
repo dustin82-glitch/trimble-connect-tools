@@ -53,8 +53,23 @@
       return TRUSTED_HOST_PATTERN.test(window.location.hostname);
     }
 
+    function isTrustedReferrer() {
+      try {
+        if (!document.referrer) return false;
+        const refHost = new URL(document.referrer).hostname;
+        return TRUSTED_HOST_PATTERN.test(refHost);
+      } catch {
+        return false;
+      }
+    }
+
+    function isTrustedContext() {
+      // Allow direct trimble host usage or trusted parent referrer when embedded.
+      return isTrustedHost() || isTrustedReferrer();
+    }
+
     // Connect to Trimble Browser Client Environment
-    if (!isTrustedHost()) {
+    if (!isTrustedContext()) {
       console.error("Blocked: this extension is only allowed on trusted Trimble hosts.");
       alert("Untrusted host blocked. Open this extension from an approved Trimble domain.");
     } else {
