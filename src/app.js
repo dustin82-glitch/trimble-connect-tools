@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-26";
+const BUILD_VERSION = "20260712-27";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -120,6 +120,160 @@ function toNumericValue(value) {
   if (!match) return null;
   const numeric = Number(match[0]);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isTruthyLike(value) {
+  if (value === null || value === undefined) return false;
+  const text = String(value).trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "y" || text === "main";
+}
+
+function readAssemblyMarkAndCog(objectData) {
+  const assemblyMark = findPropertyValue(objectData, "AssemblyMark");
+  const cogX = findPropertyValue(objectData, "centerofgravityx");
+  const cogY = findPropertyValue(objectData, "centerofgravityy");
+  const cogZ = findPropertyValue(objectData, "centerofgravityz");
+  const mainPartFlag = findPropertyValue(objectData, "mainpart");
+  const isMainPart = isTruthyLike(mainPartFlag.value);
+
+  const x = toNumericValue(cogX.value);
+  const y = toNumericValue(cogY.value);
+  const z = toNumericValue(cogZ.value);
+  const textValue = assemblyMark.value === null || assemblyMark.value === undefined || assemblyMark.value === ""
+    ? "N/A"
+    : String(assemblyMark.value);
+
+  return {
+    x,
+    y,
+    z,
+    textValue,
+    isMainPart,
+    hasAssemblyMark: assemblyMark.value !== null && assemblyMark.value !== undefined && assemblyMark.value !== "",
+    hasCog: x !== null && y !== null && z !== null,
+    raw: {
+      cogX: cogX.value,
+      cogY: cogY.value,
+      cogZ: cogZ.value,
+      mainPartFlag: mainPartFlag.value
+    }
+  };
+}
+
+function collectHierarchyChildIds(children) {
+  const ids = [];
+  for (const child of children || []) {
+    if (!child || typeof child !== "object") continue;
+    const candidate = child.objectRuntimeId ?? child.id ?? child.entityId;
+    const asNumber = Number(candidate);
+    if (!Number.isFinite(asNumber)) continue;
+    ids.push(asNumber);
+  }
+  return Array.from(new Set(ids));
+}
+
+async function resolveAssemblyLabelSource(item) {
+  const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+  const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+  if (!objectData) {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-no-properties",
+      data: null
+    };
+  }
+
+  const selectedData = readAssemblyMarkAndCog(objectData);
+  if (selectedData.hasCog && selectedData.hasAssemblyMark && selectedData.isMainPart) {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-main-part",
+      data: selectedData
+    };
+  }
+
+  if (!apiRef.viewer.getHierarchyChildren) {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-no-hierarchy",
+      data: selectedData
+    };
+  }
+
+  let childIds = [];
+  try {
+    const children = await apiRef.viewer.getHierarchyChildren(item.modelId, [item.objectRuntimeId], undefined, true);
+    childIds = collectHierarchyChildIds(children).filter(id => id !== Number(item.objectRuntimeId));
+  } catch {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-hierarchy-failed",
+      data: selectedData
+    };
+  }
+
+  if (!childIds.length) {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-no-children",
+      data: selectedData
+    };
+  }
+
+  const lookupIds = childIds.slice(0, 200);
+  let childProperties = [];
+  try {
+    childProperties = await apiRef.viewer.getObjectProperties(item.modelId, lookupIds);
+  } catch {
+    return {
+      modelId: item.modelId,
+      objectRuntimeId: item.objectRuntimeId,
+      source: "selected-child-properties-failed",
+      data: selectedData
+    };
+  }
+
+  let bestCandidate = null;
+  for (let i = 0; i < lookupIds.length; i += 1) {
+    const childData = childProperties && childProperties.length > i ? childProperties[i] : null;
+    if (!childData) continue;
+    const parsed = readAssemblyMarkAndCog(childData);
+    if (!parsed.hasCog || !parsed.hasAssemblyMark) continue;
+
+    const score = (parsed.isMainPart ? 100 : 0) + 10;
+    if (!bestCandidate || score > bestCandidate.score) {
+      bestCandidate = {
+        modelId: item.modelId,
+        objectRuntimeId: lookupIds[i],
+        source: parsed.isMainPart ? "main-part-child" : "child-fallback",
+        data: parsed,
+        score
+      };
+    }
+
+    if (parsed.isMainPart) break;
+  }
+
+  if (bestCandidate) {
+    return {
+      modelId: bestCandidate.modelId,
+      objectRuntimeId: bestCandidate.objectRuntimeId,
+      source: bestCandidate.source,
+      data: bestCandidate.data
+    };
+  }
+
+  return {
+    modelId: item.modelId,
+    objectRuntimeId: item.objectRuntimeId,
+    source: "selected-no-main-part-match",
+    data: selectedData
+  };
 }
 
 function findPropertyValue(objectProperties, propertyName) {
@@ -584,39 +738,31 @@ async function addAssemblyMarkCogMarkup() {
   const item = items[0];
 
   try {
-    const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
-    const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
-    if (!objectData) {
+    const source = await resolveAssemblyLabelSource(item);
+    if (!source.data) {
       statusEl.textContent = "Selected object has no properties.";
       return;
     }
 
-    const assemblyMark = findPropertyValue(objectData, "AssemblyMark");
-    const cogX = findPropertyValue(objectData, "centerofgravityx");
-    const cogY = findPropertyValue(objectData, "centerofgravityy");
-    const cogZ = findPropertyValue(objectData, "centerofgravityz");
-
-    const x = toNumericValue(cogX.value);
-    const y = toNumericValue(cogY.value);
-    const z = toNumericValue(cogZ.value);
-    const textValue = assemblyMark.value === null || assemblyMark.value === undefined || assemblyMark.value === ""
-      ? "N/A"
-      : String(assemblyMark.value);
+    const x = source.data.x;
+    const y = source.data.y;
+    const z = source.data.z;
+    const textValue = source.data.textValue;
 
     if (x === null || y === null || z === null) {
       renderDebugRows("assemblymark-cog", [
         {
-          modelId: item.modelId,
-          objectRuntimeId: item.objectRuntimeId,
-          value: "cogX=" + String(cogX.value) + ", cogY=" + String(cogY.value) + ", cogZ=" + String(cogZ.value),
-          status: "missing-cog"
+          modelId: source.modelId,
+          objectRuntimeId: source.objectRuntimeId,
+          value: "cogX=" + String(source.data.raw.cogX) + ", cogY=" + String(source.data.raw.cogY) + ", cogZ=" + String(source.data.raw.cogZ),
+          status: "missing-cog|source=" + source.source
         }
       ], items.length, 1);
       statusEl.textContent = "Could not parse centerofgravityx/y/z from selected object properties.";
       return;
     }
 
-    const startPick = toMarkupPick({ x, y, z }, item.modelId, item.objectRuntimeId);
+    const startPick = toMarkupPick({ x, y, z }, source.modelId, source.objectRuntimeId);
     const endPick = {
       ...startPick,
       positionX: startPick.positionX + MARKUP_MIN_OFFSET_MM
@@ -633,10 +779,10 @@ async function addAssemblyMarkCogMarkup() {
 
     renderDebugRows("assemblymark-cog", [
       {
-        modelId: item.modelId,
-        objectRuntimeId: item.objectRuntimeId,
+        modelId: source.modelId,
+        objectRuntimeId: source.objectRuntimeId,
         value: textValue,
-        status: "assemblymark-cog",
+        status: "assemblymark-cog|source=" + source.source,
         payload: payload[0]
       }
     ], items.length, 1);
