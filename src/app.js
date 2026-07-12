@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-29";
+const BUILD_VERSION = "20260712-30";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -590,7 +590,7 @@ async function applyPropertyToSelection() {
   const debugRows = [];
   let firstError = "";
   // Apply to a bounded amount per click to keep the 3D host responsive.
-  const applyItems = items.slice(0, 25);
+  const applyItems = items;
   for (const item of applyItems) {
     try {
       const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
@@ -831,11 +831,7 @@ async function addAssemblyMarkCogMarkup() {
   try {
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    if (items.length > applyItems.length) {
-      statusEl.textContent = "Placed " + created + " AssemblyMark COG markups (limited to first " + applyItems.length + "). Skipped: " + skipped + ", Failed: " + failed + ".";
-    } else {
-      statusEl.textContent = "Placed " + created + " AssemblyMark COG markups. Skipped: " + skipped + ", Failed: " + failed + ".";
-    }
+    statusEl.textContent = "Placed " + created + " AssemblyMark COG markups. Skipped: " + skipped + ", Failed: " + failed + ".";
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "AssemblyMark COG markup failed: " + message;
