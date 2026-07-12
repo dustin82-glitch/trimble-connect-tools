@@ -143,6 +143,54 @@
   <script>
     let apiRef = null;
 
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function connectWithTimeout(target, timeoutMs) {
+      const connectPromise = window.TrimbleConnectWorkspace.connect(target, (event, args) => {
+        if (event === "extension.command") {
+          console.log("extension.command", args);
+        }
+      }, timeoutMs);
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Timed out after " + timeoutMs + "ms")), timeoutMs + 2000);
+      });
+
+      return Promise.race([connectPromise, timeoutPromise]);
+    }
+
+    async function connectWorkspaceApiWithFallbacks(statusEl) {
+      const candidates = [
+        { name: "parent", target: window.parent },
+        { name: "top", target: window.top },
+        { name: "self", target: window }
+      ];
+
+      const seen = new Set();
+      const errors = [];
+
+      for (const candidate of candidates) {
+        if (!candidate.target) continue;
+        if (seen.has(candidate.target)) continue;
+        seen.add(candidate.target);
+
+        statusEl.textContent = "Connecting via " + candidate.name + " window...";
+        try {
+          const api = await connectWithTimeout(candidate.target, 10000);
+          statusEl.textContent = "Connected via " + candidate.name + " window.";
+          return api;
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error);
+          errors.push(candidate.name + ": " + message);
+          await sleep(150);
+        }
+      }
+
+      throw new Error("Connection failed. " + errors.join(" | "));
+    }
+
     function flattenProperties(objectProperties) {
       const sets = objectProperties && objectProperties.properties ? objectProperties.properties : [];
       const all = [];
@@ -246,11 +294,7 @@
       }
 
       try {
-        const api = await window.TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
-          if (event === "extension.command") {
-            console.log("extension.command", args);
-          }
-        }, 30000);
+        const api = await connectWorkspaceApiWithFallbacks(statusEl);
         apiRef = api;
 
         try {
@@ -301,7 +345,7 @@
         });
       } catch (error) {
         console.error(error);
-        statusEl.textContent = "Could not connect to Trimble Workspace API.";
+        statusEl.textContent = "Could not connect to Trimble Workspace API: " + (error && error.message ? error.message : String(error));
       }
     }
 
