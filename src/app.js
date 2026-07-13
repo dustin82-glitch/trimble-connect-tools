@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-30";
+const BUILD_VERSION = "20260712-32";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -514,6 +514,7 @@ async function refreshPropertyDropdown(statusEl) {
   if (!apiRef || !supportsViewerMarkup(apiRef)) return [];
 
   const selectEl = document.getElementById("propertyName");
+  const filterSelectEl = document.getElementById("filterPropertyName");
   const selection = await apiRef.viewer.getSelection();
   const items = await getSelectionItems(selection);
 
@@ -546,6 +547,7 @@ async function refreshPropertyDropdown(statusEl) {
 
   const propertyNames = Array.from(names).sort((a, b) => a.localeCompare(b));
   setPropertyDropdownOptions(selectEl, propertyNames);
+  setPropertyDropdownOptions(filterSelectEl, propertyNames);
 
   if (!propertyNames.length) {
     statusEl.textContent = "No properties found on current selection.";
@@ -838,16 +840,151 @@ async function addAssemblyMarkCogMarkup() {
   }
 }
 
+function valuesMatch(actualValue, expectedValue) {
+  if (actualValue === null || actualValue === undefined) return false;
+  const actual = String(actualValue).trim();
+  const expected = String(expectedValue || "").trim();
+  if (!actual || !expected) return false;
+  return normalizeKey(actual) === normalizeKey(expected);
+}
+
+async function addFilteredPropertyLabels() {
+  if (!apiRef || !apiRef.markup || !apiRef.markup.addTextMarkup) return;
+
+  const statusEl = document.getElementById("status");
+  const propertyName = document.getElementById("filterPropertyName").value.trim() || document.getElementById("propertyName").value.trim();
+  const matchValue = document.getElementById("propertyMatchValue").value.trim();
+
+  if (!propertyName) {
+    statusEl.textContent = "Select a property first, then enter a match value.";
+    return;
+  }
+
+  if (!matchValue) {
+    statusEl.textContent = "Enter a value to match before applying the filter.";
+    return;
+  }
+
+  const selection = await apiRef.viewer.getSelection();
+  const items = await getSelectionItems(selection);
+  if (!items.length) {
+    statusEl.textContent = "No selected objects found. Select parts first.";
+    return;
+  }
+
+  const payload = [];
+  const debugRows = [];
+  let skipped = 0;
+  let failed = 0;
+  let firstError = "";
+
+  for (const item of items) {
+    try {
+      const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+      const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+      if (!objectData) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: "n/a",
+          status: "no-properties"
+        });
+        continue;
+      }
+
+      const match = findPropertyValue(objectData, propertyName);
+      if (!valuesMatch(match.value, matchValue)) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: match.value === null || match.value === undefined ? "n/a" : String(match.value),
+          status: "filtered-out"
+        });
+        continue;
+      }
+
+      const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+      const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+      const center = centerOfBox(boxData);
+      if (!center) {
+        skipped += 1;
+        debugRows.push({
+          modelId: item.modelId,
+          objectRuntimeId: item.objectRuntimeId,
+          value: match.value === null || match.value === undefined ? "n/a" : String(match.value),
+          status: "no-bounding-box"
+        });
+        continue;
+      }
+
+      const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
+      const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
+      const offsetX = getMarkupOffsetX(boxData);
+      const endPick = {
+        ...startPick,
+        positionX: startPick.positionX + offsetX
+      };
+
+      payload.push({
+        start: startPick,
+        end: endPick,
+        text: textValue,
+        color: { r: 0, g: 112, b: 192, a: 255 }
+      });
+
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: textValue,
+        status: "matched|dx=" + Math.round(offsetX),
+        payload: payload[payload.length - 1]
+      });
+    } catch (error) {
+      failed += 1;
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: "n/a",
+        status: "error"
+      });
+      if (!firstError) {
+        firstError = error && error.message ? error.message : String(error);
+      }
+    }
+  }
+
+  renderDebugRows(propertyName, debugRows, items.length, items.length);
+
+  if (!payload.length) {
+    statusEl.textContent = "No matching labels created. Skipped: " + skipped + ", Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
+    return;
+  }
+
+  try {
+    const added = await apiRef.markup.addTextMarkup(payload);
+    const created = Array.isArray(added) ? added.length : payload.length;
+    statusEl.textContent = "Placed " + created + " filtered labels. Skipped: " + skipped + ", Failed: " + failed + ".";
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    statusEl.textContent = "Filtered label markup failed: " + message;
+  }
+}
+
 async function initExtension() {
   const statusEl = document.getElementById("status");
   const hostEl = document.getElementById("host");
   const projectEl = document.getElementById("project");
   const userEl = document.getElementById("user");
   const propertySelect = document.getElementById("propertyName");
+  const filterPropertySelect = document.getElementById("filterPropertyName");
+  const matchValueInput = document.getElementById("propertyMatchValue");
   const refreshBtn = document.getElementById("refreshPropertiesBtn");
   const applyBtn = document.getElementById("applyPropertyBtn");
   const helloWorldBtn = document.getElementById("addHelloWorldBtn");
   const assemblyMarkCogBtn = document.getElementById("addAssemblyMarkCogBtn");
+  const filteredLabelsBtn = document.getElementById("addFilteredLabelsBtn");
   initializeDebugPanel();
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
@@ -884,10 +1021,13 @@ async function initExtension() {
     if (supportsViewerMarkup(api)) {
       statusEl.textContent = "Connected to Workspace API. Property markup tool is ready.";
       propertySelect.disabled = false;
+      filterPropertySelect.disabled = false;
+      matchValueInput.disabled = false;
       refreshBtn.disabled = false;
       applyBtn.disabled = false;
       helloWorldBtn.disabled = false;
       assemblyMarkCogBtn.disabled = false;
+      filteredLabelsBtn.disabled = false;
 
       await refreshSelectionDebugFromViewer();
       startSelectionMonitor();
@@ -945,10 +1085,23 @@ async function initExtension() {
           assemblyMarkCogBtn.disabled = false;
         }
       });
+
+      filteredLabelsBtn.addEventListener("click", async () => {
+        filteredLabelsBtn.disabled = true;
+        try {
+          await addFilteredPropertyLabels();
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = "Failed while placing filtered labels.";
+        } finally {
+          filteredLabelsBtn.disabled = false;
+        }
+      });
     } else {
       applyBtn.disabled = true;
       helloWorldBtn.disabled = true;
       assemblyMarkCogBtn.disabled = true;
+      filteredLabelsBtn.disabled = true;
       statusEl.textContent = "Connected to Workspace API, but viewer markup methods are unavailable in this host.";
     }
   } catch (error) {

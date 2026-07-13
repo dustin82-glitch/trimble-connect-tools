@@ -168,6 +168,14 @@
         <button id="addHelloWorldBtn" type="button" disabled>Add Hello World</button>
         <button id="addAssemblyMarkCogBtn" type="button" disabled>Add AssemblyMark @ COG</button>
       </div>
+      <label for="filterPropertyName">Filter property for mass labels</label>
+      <div class="tools-row">
+        <select id="filterPropertyName" disabled>
+          <option value="">Use selected property</option>
+        </select>
+        <input id="propertyMatchValue" type="text" disabled placeholder="Enter value to match">
+        <button id="addFilteredLabelsBtn" type="button" disabled>Add Filtered Labels</button>
+      </div>
     </div>
     <div class="debug">
       <div class="debug-title">Selection Debug</div>
@@ -176,6 +184,6 @@
     </div>
   </div>
 
-  <script src="./app.js?v=20260712-30"></script>
+  <script src="./app.js?v=20260712-32"></script>
 </body>
 </html>
