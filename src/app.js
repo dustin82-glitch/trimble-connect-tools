@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-33";
+const BUILD_VERSION = "20260712-34";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -318,6 +318,66 @@ function centerOfBox(boundingBox) {
   };
 }
 
+function vectorToMm(vector) {
+  if (!vector) return null;
+  const x = metersToMillimeters(vector.x);
+  const y = metersToMillimeters(vector.y);
+  const z = metersToMillimeters(vector.z);
+  if (x === null || y === null || z === null) return null;
+  return { x, y, z };
+}
+
+function metersToMillimeters(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric * 1000 : null;
+}
+
+function vectorToMillimeters(vector) {
+  if (!vector) return null;
+  const x = metersToMillimeters(vector.x);
+  const y = metersToMillimeters(vector.y);
+  const z = metersToMillimeters(vector.z);
+  if (x === null || y === null || z === null) return null;
+  return { x, y, z };
+}
+
+async function getGlobalBoundingBoxCenterMm(item) {
+  const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+  const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+  const localCenter = centerOfBox(boxData);
+  if (!localCenter) return null;
+
+  const localCenterMm = vectorToMm(localCenter);
+  if (!localCenterMm) return null;
+
+  let objectPositionMm = null;
+  try {
+    const positions = await apiRef.viewer.getObjectPositions(item.modelId, [item.objectRuntimeId]);
+    const objectPosition = positions && positions.length ? positions[0].position : null;
+    objectPositionMm = vectorToMillimeters(objectPosition);
+  } catch {
+    objectPositionMm = null;
+  }
+
+  if (!objectPositionMm) {
+    return localCenterMm;
+  }
+
+  return {
+    x: objectPositionMm.x + localCenterMm.x,
+    y: objectPositionMm.y + localCenterMm.y,
+    z: objectPositionMm.z + localCenterMm.z
+  };
+}
+
+function getMarkupOffsetMm(boundingBox) {
+  if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
+  const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
+  const sizeXmm = Number.isFinite(sizeX) ? sizeX * 1000 : null;
+  if (sizeXmm === null) return MARKUP_MIN_OFFSET_MM;
+  return Math.max(MARKUP_MIN_OFFSET_MM, sizeXmm / 2 + MARKUP_CLEARANCE_MM);
+}
+
 function toMarkupPick(position, modelId, objectId) {
   return {
     positionX: position.x,
@@ -613,7 +673,7 @@ async function applyPropertyToSelection() {
 
       const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
       const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-      const center = centerOfBox(boxData);
+      const center = await getGlobalBoundingBoxCenterMm(item);
       if (!center) {
         skipped += 1;
         debugRows.push({
@@ -626,7 +686,7 @@ async function applyPropertyToSelection() {
       }
 
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-      const offsetX = getMarkupOffsetX(boxData);
+      const offsetX = getMarkupOffsetMm(boxData);
       const endPick = {
         ...startPick,
         positionX: startPick.positionX + offsetX
@@ -779,9 +839,9 @@ async function addAssemblyMarkCogMarkup() {
       let placementStatus = "assembly-cog|text-source=" + textSource.source;
 
       if (x === null || y === null || z === null) {
-        const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
-        const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-        const center = centerOfBox(boxData);
+        const globalCenter = await getGlobalBoundingBoxCenterMm(item);
+        const boxData = null;
+        const center = globalCenter;
         if (!center) {
           skipped += 1;
           debugRows.push({
@@ -919,7 +979,7 @@ async function addFilteredPropertyLabels() {
 
       const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
       const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-      const center = centerOfBox(boxData);
+      const center = await getGlobalBoundingBoxCenterMm(item);
       if (!center) {
         skipped += 1;
         debugRows.push({
@@ -933,7 +993,7 @@ async function addFilteredPropertyLabels() {
 
       const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-      const offsetX = getMarkupOffsetX(boxData);
+      const offsetX = getMarkupOffsetMm(boxData);
       const endPick = {
         ...startPick,
         positionX: startPick.positionX + offsetX
