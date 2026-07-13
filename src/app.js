@@ -1,16 +1,14 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-35";
-const MARKUP_MIN_OFFSET_WORLD = 0.15;
-const MARKUP_CLEARANCE_WORLD = 0.05;
-const MARKUP_MIN_OFFSET_MM = 150;
-const MARKUP_CLEARANCE_MM = 50;
+const BUILD_VERSION = "20260712-40";
+const MARKUP_MIN_OFFSET_UNITS = 150;
+const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
 const HELLO_WORLD_TEXT = "Hello World";
-const HELLO_WORLD_ORIGIN_X_MM = 279394711;
-const HELLO_WORLD_ORIGIN_Y_MM = 5788564212;
-const HELLO_WORLD_ORIGIN_Z_MM = 23084;
-const HELLO_WORLD_OFFSET_BELOW_MM = 500;
-const HELLO_WORLD_END_OFFSET_X_MM = 500;
+const HELLO_WORLD_ORIGIN_X_UNITS = 279394711;
+const HELLO_WORLD_ORIGIN_Y_UNITS = 5788564212;
+const HELLO_WORLD_ORIGIN_Z_UNITS = 23084;
+const HELLO_WORLD_OFFSET_BELOW_UNITS = 500;
+const HELLO_WORLD_END_OFFSET_X_UNITS = 500;
 
 let selectionMonitorHandle = null;
 let lastSelectionSignature = "";
@@ -320,53 +318,42 @@ function centerOfBox(boundingBox) {
   };
 }
 
-function metersToMillimeters(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric * 1000 : null;
-}
-
-function vectorToMillimeters(vector) {
-  if (!vector) return null;
-  const x = metersToMillimeters(vector.x);
-  const y = metersToMillimeters(vector.y);
-  const z = metersToMillimeters(vector.z);
-  if (x === null || y === null || z === null) return null;
-  return { x, y, z };
-}
-
-async function getGlobalBoundingBoxCenterWorld(item) {
+async function getGlobalBoundingBoxCenter(item) {
   const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
   const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
   const localCenter = centerOfBox(boxData);
   if (!localCenter) return null;
 
-  let objectPositionWorld = null;
-  try {
-    const positions = await apiRef.viewer.getObjectPositions(item.modelId, [item.objectRuntimeId]);
-    const objectPosition = positions && positions.length ? positions[0].position : null;
-    objectPositionWorld = objectPosition && Number.isFinite(Number(objectPosition.x)) && Number.isFinite(Number(objectPosition.y)) && Number.isFinite(Number(objectPosition.z))
-      ? { x: Number(objectPosition.x), y: Number(objectPosition.y), z: Number(objectPosition.z) }
-      : null;
-  } catch {
-    objectPositionWorld = null;
-  }
-
-  if (!objectPositionWorld) {
-    return localCenter;
-  }
-
-  return {
-    x: objectPositionWorld.x + localCenter.x,
-    y: objectPositionWorld.y + localCenter.y,
-    z: objectPositionWorld.z + localCenter.z
-  };
+  // Use host-reported drawing units directly.
+  return localCenter;
 }
 
-function getMarkupOffsetWorld(boundingBox) {
-  if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_WORLD;
+async function resolvePlacementPosition(item, objectData) {
+  const objectInfo = objectData
+    ? objectData
+    : (() => {
+      throw new Error("objectData is required for resolvePlacementPosition");
+    })();
+
+  const parsed = readAssemblyMarkAndCog(objectInfo);
+  if (parsed.hasCog) {
+    return {
+      position: { x: parsed.x, y: parsed.y, z: parsed.z },
+      source: "cog"
+    };
+  }
+
+  const center = await getGlobalBoundingBoxCenter(item);
+  if (!center) return { position: null, source: "bbox-missing" };
+
+  return { position: center, source: "bbox-center" };
+}
+
+function getMarkupOffset(boundingBox) {
+  if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_UNITS;
   const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
-  if (!Number.isFinite(sizeX)) return MARKUP_MIN_OFFSET_WORLD;
-  return Math.max(MARKUP_MIN_OFFSET_WORLD, sizeX / 2 + MARKUP_CLEARANCE_WORLD);
+  if (!Number.isFinite(sizeX)) return MARKUP_MIN_OFFSET_UNITS;
+  return Math.max(MARKUP_MIN_OFFSET_UNITS, sizeX / 2 + MARKUP_CLEARANCE_UNITS);
 }
 
 function toMarkupPick(position, modelId, objectId) {
@@ -378,12 +365,6 @@ function toMarkupPick(position, modelId, objectId) {
     objectId: Number(objectId),
     type: "point"
   };
-}
-
-function getMarkupOffsetX(boundingBox) {
-  if (!boundingBox || !boundingBox.min || !boundingBox.max) return MARKUP_MIN_OFFSET_MM;
-  const sizeX = Math.abs(Number(boundingBox.max.x) - Number(boundingBox.min.x));
-  return Math.max(MARKUP_MIN_OFFSET_MM, sizeX / 2 + MARKUP_CLEARANCE_MM);
 }
 
 function toWorldPick(x, y, z) {
@@ -664,20 +645,21 @@ async function applyPropertyToSelection() {
 
       const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
       const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-      const center = await getGlobalBoundingBoxCenterWorld(item);
+      const placement = await resolvePlacementPosition(item, objectData);
+      const center = placement.position;
       if (!center) {
         skipped += 1;
         debugRows.push({
           modelId: item.modelId,
           objectRuntimeId: item.objectRuntimeId,
           value: textValue,
-          status: "no-bounding-box"
+          status: "no-placement-position"
         });
         continue;
       }
 
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-      const offsetX = getMarkupOffsetWorld(boxData);
+      const offsetX = getMarkupOffset(boxData);
       const endPick = {
         ...startPick,
         positionX: startPick.positionX + offsetX
@@ -694,7 +676,7 @@ async function applyPropertyToSelection() {
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: (match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)") + "|dx=" + Math.round(offsetX),
+        status: (match.matchedName ? "queued(" + match.matchedName + ")" : "queued(no-match)") + "|source=" + placement.source + "|dx=" + offsetX.toFixed(3),
         payload: payloadEntry
       });
     } catch (error) {
@@ -742,12 +724,12 @@ async function addHelloWorldTestMarkup() {
   const statusEl = document.getElementById("status");
 
   try {
-    const x = HELLO_WORLD_ORIGIN_X_MM;
-    const y = HELLO_WORLD_ORIGIN_Y_MM;
-    const z = HELLO_WORLD_ORIGIN_Z_MM - HELLO_WORLD_OFFSET_BELOW_MM;
+    const x = HELLO_WORLD_ORIGIN_X_UNITS;
+    const y = HELLO_WORLD_ORIGIN_Y_UNITS;
+    const z = HELLO_WORLD_ORIGIN_Z_UNITS - HELLO_WORLD_OFFSET_BELOW_UNITS;
 
     const startPick = toWorldPick(x, y, z);
-    const endPick = toWorldPick(x + HELLO_WORLD_END_OFFSET_X_MM, y, z);
+    const endPick = toWorldPick(x + HELLO_WORLD_END_OFFSET_X_UNITS, y, z);
 
     const payload = [
       {
@@ -770,7 +752,7 @@ async function addHelloWorldTestMarkup() {
 
     const added = await apiRef.markup.addTextMarkup(payload);
     const created = Array.isArray(added) ? added.length : payload.length;
-    statusEl.textContent = "Placed " + created + " Hello World markup at fixed location (Z-500mm).";
+    statusEl.textContent = "Placed " + created + " Hello World markup at fixed location (Z-500 units).";
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     statusEl.textContent = "Hello World markup failed: " + message;
@@ -788,7 +770,7 @@ async function addAssemblyMarkCogMarkup() {
     return;
   }
 
-  const applyItems = items.slice(0, 25);
+  const applyItems = items;
   const payload = [];
   const debugRows = [];
   let skipped = 0;
@@ -830,7 +812,7 @@ async function addAssemblyMarkCogMarkup() {
       let placementStatus = "assembly-cog|text-source=" + textSource.source;
 
       if (x === null || y === null || z === null) {
-        const globalCenter = await getGlobalBoundingBoxCenterWorld(item);
+        const globalCenter = await getGlobalBoundingBoxCenter(item);
         const center = globalCenter;
         if (!center) {
           skipped += 1;
@@ -853,7 +835,7 @@ async function addAssemblyMarkCogMarkup() {
       const startPick = toMarkupPick({ x, y, z }, item.modelId, item.objectRuntimeId);
       const endPick = {
         ...startPick,
-        positionX: startPick.positionX + MARKUP_MIN_OFFSET_WORLD
+        positionX: startPick.positionX + MARKUP_MIN_OFFSET_UNITS
       };
 
       payload.push({
@@ -969,21 +951,22 @@ async function addFilteredPropertyLabels() {
 
       const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
       const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
-      const center = await getGlobalBoundingBoxCenterWorld(item);
+      const placement = await resolvePlacementPosition(item, objectData);
+      const center = placement.position;
       if (!center) {
         skipped += 1;
         debugRows.push({
           modelId: item.modelId,
           objectRuntimeId: item.objectRuntimeId,
           value: match.value === null || match.value === undefined ? "n/a" : String(match.value),
-          status: "no-bounding-box"
+          status: "no-placement-position"
         });
         continue;
       }
 
       const textValue = match.value === null || match.value === undefined || match.value === "" ? "N/A" : String(match.value);
       const startPick = toMarkupPick(center, item.modelId, item.objectRuntimeId);
-      const offsetX = getMarkupOffsetWorld(boxData);
+      const offsetX = getMarkupOffset(boxData);
       const endPick = {
         ...startPick,
         positionX: startPick.positionX + offsetX
@@ -1000,7 +983,7 @@ async function addFilteredPropertyLabels() {
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: "matched|dx=" + Math.round(offsetX),
+        status: "matched|source=" + placement.source + "|dx=" + offsetX.toFixed(3),
         payload: payload[payload.length - 1]
       });
     } catch (error) {
@@ -1034,6 +1017,75 @@ async function addFilteredPropertyLabels() {
   }
 }
 
+async function debugBoundingBoxAndCog() {
+  if (!apiRef || !apiRef.viewer) return;
+
+  const statusEl = document.getElementById("status");
+  const selection = await apiRef.viewer.getSelection();
+  const items = await getSelectionItems(selection);
+  if (!items.length) {
+    statusEl.textContent = "No selected objects found. Select parts first.";
+    return;
+  }
+
+  const debugRows = [];
+  let failed = 0;
+  let firstError = "";
+
+  for (const item of items) {
+    try {
+      const objectProperties = await apiRef.viewer.getObjectProperties(item.modelId, [item.objectRuntimeId]);
+      const objectData = objectProperties && objectProperties.length ? objectProperties[0] : null;
+      const parsedCog = objectData ? readAssemblyMarkAndCog(objectData) : null;
+
+      const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+      const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+      const min = boxData && boxData.min ? boxData.min : null;
+      const max = boxData && boxData.max ? boxData.max : null;
+      const center = centerOfBox(boxData);
+
+      const formatPoint = (point) => {
+        if (!point) return "n/a";
+        return "(" + point.x + "," + point.y + "," + point.z + ")";
+      };
+
+      const value =
+        "bbox.min=" + formatPoint(min) +
+        " | bbox.max=" + formatPoint(max) +
+        " | bbox.center=" + formatPoint(center) +
+        " | cog.raw=(" +
+        String(parsedCog && parsedCog.raw ? parsedCog.raw.cogX : null) + "," +
+        String(parsedCog && parsedCog.raw ? parsedCog.raw.cogY : null) + "," +
+        String(parsedCog && parsedCog.raw ? parsedCog.raw.cogZ : null) +
+        ") | cog.parsed=(" +
+        String(parsedCog ? parsedCog.x : null) + "," +
+        String(parsedCog ? parsedCog.y : null) + "," +
+        String(parsedCog ? parsedCog.z : null) + ")";
+
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value,
+        status: "bbox-cog-raw"
+      });
+    } catch (error) {
+      failed += 1;
+      debugRows.push({
+        modelId: item.modelId,
+        objectRuntimeId: item.objectRuntimeId,
+        value: "n/a",
+        status: "error"
+      });
+      if (!firstError) {
+        firstError = error && error.message ? error.message : String(error);
+      }
+    }
+  }
+
+  renderDebugRows("bbox-cog-raw", debugRows, items.length, items.length);
+  statusEl.textContent = "Raw bbox/COG debug captured for " + debugRows.length + " item(s). Failed: " + failed + (firstError ? " (" + firstError + ")" : "") + ".";
+}
+
 async function initExtension() {
   const statusEl = document.getElementById("status");
   const hostEl = document.getElementById("host");
@@ -1047,6 +1099,7 @@ async function initExtension() {
   const helloWorldBtn = document.getElementById("addHelloWorldBtn");
   const assemblyMarkCogBtn = document.getElementById("addAssemblyMarkCogBtn");
   const filteredLabelsBtn = document.getElementById("addFilteredLabelsBtn");
+  const debugBboxCogBtn = document.getElementById("debugBboxCogBtn");
   initializeDebugPanel();
 
   const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
@@ -1090,6 +1143,7 @@ async function initExtension() {
       helloWorldBtn.disabled = false;
       assemblyMarkCogBtn.disabled = false;
       filteredLabelsBtn.disabled = false;
+      debugBboxCogBtn.disabled = false;
 
       await refreshSelectionDebugFromViewer();
       startSelectionMonitor();
@@ -1159,11 +1213,24 @@ async function initExtension() {
           filteredLabelsBtn.disabled = false;
         }
       });
+
+      debugBboxCogBtn.addEventListener("click", async () => {
+        debugBboxCogBtn.disabled = true;
+        try {
+          await debugBoundingBoxAndCog();
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = "Failed while collecting bbox/COG debug.";
+        } finally {
+          debugBboxCogBtn.disabled = false;
+        }
+      });
     } else {
       applyBtn.disabled = true;
       helloWorldBtn.disabled = true;
       assemblyMarkCogBtn.disabled = true;
       filteredLabelsBtn.disabled = true;
+      debugBboxCogBtn.disabled = true;
       statusEl.textContent = "Connected to Workspace API, but viewer markup methods are unavailable in this host.";
     }
   } catch (error) {

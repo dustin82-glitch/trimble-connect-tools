@@ -2,188 +2,185 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://components.connect.trimble.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
-  <title>Trimble Connect Hello World</title>
-  <!-- Load official Trimble Workspace API bundle -->
-  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; frame-ancestors 'self' https://*.trimble.com https://*.trimblepaas.com; base-uri 'self'; object-src 'none'">
+  <title>Trimble Connect Markup Tools</title>
+  <script src="https://cdn.jsdelivr.net/npm/trimble-connect-workspace-api@1/dist/index.min.js"></script>
   <style>
     :root {
-      --brand: #0070c0;
-      --ink: #173047;
-      --muted: #5d6f7e;
-      --bg: #f4f8fb;
-      --panel: #ffffff;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --brand: #0b63ce;
+      --brand-hover: #084ea3;
     }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
-      min-height: 100vh;
+      padding: 14px;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: radial-gradient(circle at 20% 0%, #e9f2fa 0%, var(--bg) 55%);
-      color: var(--ink);
-      padding: 24px;
+      color: var(--text);
+      background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
     }
-    .card {
+
+    .panel {
+      display: grid;
+      gap: 12px;
       max-width: 720px;
       margin: 0 auto;
-      background: var(--panel);
-      border: 1px solid #d8e4ef;
-      border-radius: 14px;
-      box-shadow: 0 10px 30px rgba(22, 60, 90, 0.08);
-      padding: 22px;
     }
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 6px 14px rgba(17, 24, 39, 0.06);
     }
-    .icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-    }
-    h1 {
+
+    .title {
       margin: 0;
-      font-size: 22px;
-      color: var(--brand);
-      letter-spacing: 0.2px;
-    }
-    p {
-      margin: 8px 0;
-      line-height: 1.45;
-      color: var(--ink);
-    }
-    .status {
-      margin-top: 14px;
-      font-size: 13px;
-      border-left: 4px solid var(--brand);
-      background: #eef6fd;
-      color: var(--muted);
-      padding: 10px 12px;
-      border-radius: 6px;
-    }
-    .meta {
-      margin-top: 14px;
-      display: grid;
-      gap: 8px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-    .label {
-      color: #44596b;
-      font-weight: 600;
-      margin-right: 6px;
-    }
-    .tools {
-      margin-top: 16px;
-      border-top: 1px solid #d8e4ef;
-      padding-top: 14px;
-      display: grid;
-      gap: 10px;
-    }
-    .tools label {
-      font-size: 12px;
-      color: #44596b;
-      font-weight: 600;
-    }
-    .tools-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .tools input,
-    .tools select {
-      flex: 1 1 240px;
-      min-width: 220px;
-      border: 1px solid #b8ccdd;
-      border-radius: 8px;
-      padding: 10px;
-      font-size: 14px;
-      color: var(--ink);
-    }
-    .tools button {
-      border: 0;
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #fff;
-      background: var(--brand);
-      cursor: pointer;
-    }
-    .tools button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .debug {
-      margin-top: 14px;
-      border-top: 1px solid #d8e4ef;
-      padding-top: 12px;
-    }
-    .debug-title {
-      font-size: 12px;
+      font-size: 15px;
       font-weight: 700;
-      color: #44596b;
-      margin-bottom: 6px;
+      color: var(--brand);
     }
-    .debug-summary {
+
+    .meta {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 85px 1fr;
+      gap: 6px 8px;
       font-size: 12px;
+    }
+
+    .meta-label {
       color: var(--muted);
-      margin-bottom: 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
-    .debug-list {
-      margin: 0;
-      padding-left: 18px;
-      max-height: 180px;
-      overflow: auto;
+
+    .row {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    input,
+    select,
+    button {
+      width: 100%;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text);
+    }
+
+    button {
+      border: none;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 160ms ease;
+    }
+
+    button:hover:enabled { background: var(--brand-hover); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .status {
       font-size: 12px;
-      color: #2a3f52;
-      line-height: 1.35;
+      color: var(--text);
+      background: #eef4ff;
+      border: 1px solid #c9dcff;
+      border-radius: 7px;
+      padding: 9px;
+    }
+
+    .actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .debug-list {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      font-size: 12px;
+      max-height: 220px;
+      overflow: auto;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="header">
-      <img class="icon" src="./icon.svg" alt="Extension icon">
-      <h1>Hello from Trimble Connect</h1>
-    </div>
-    <p>This is a minimal custom extension shell.</p>
-    <p>If you can see this panel inside Trimble Connect, your manifest and hosting setup are working.</p>
-    <div class="status" id="status">Connecting to Trimble Workspace API...</div>
-    <div class="meta">
-      <div><span class="label">Host:</span><span id="host">unknown</span></div>
-      <div><span class="label">Project:</span><span id="project">unknown</span></div>
-      <div><span class="label">User:</span><span id="user">unknown</span></div>
-    </div>
-    <div class="tools">
-      <label for="propertyName">Property name to place on selected parts</label>
-      <div class="tools-row">
-        <select id="propertyName">
-          <option value="">Select property from selection</option>
-        </select>
-        <button id="refreshPropertiesBtn" type="button" disabled>Refresh Properties</button>
-        <button id="applyPropertyBtn" type="button" disabled>Apply To Selection</button>
-        <button id="addHelloWorldBtn" type="button" disabled>Add Hello World</button>
-        <button id="addAssemblyMarkCogBtn" type="button" disabled>Add AssemblyMark @ COG</button>
+  <main class="panel">
+    <section class="card">
+      <h1 class="title">Trimble Connect Markup Tools</h1>
+      <div class="meta">
+        <div class="meta-label">Host</div>
+        <div id="host">-</div>
+        <div class="meta-label">Project</div>
+        <div id="project">-</div>
+        <div class="meta-label">User</div>
+        <div id="user">-</div>
       </div>
-      <label for="filterPropertyName">Filter property for mass labels</label>
-      <div class="tools-row">
-        <select id="filterPropertyName" disabled>
-          <option value="">Use selected property</option>
-        </select>
-        <input id="propertyMatchValue" type="text" disabled placeholder="Enter value to match">
-        <button id="addFilteredLabelsBtn" type="button" disabled>Add Filtered Labels</button>
-      </div>
-    </div>
-    <div class="debug">
-      <div class="debug-title">Selection Debug</div>
-      <div class="debug-summary" id="debugSummary">If this line never changes, extension JS is stale/cached.</div>
-      <ul class="debug-list" id="debugList"></ul>
-    </div>
-  </div>
+      <div id="status" class="status" aria-live="polite">Initializing...</div>
+    </section>
 
-  <script src="./app.js?v=20260712-35"></script>
+    <section class="card">
+      <h2 class="title">Property Labels</h2>
+      <div class="row">
+        <label for="propertyName">Property Name</label>
+        <select id="propertyName" disabled>
+          <option value="">Select parts and refresh properties</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button id="refreshPropertiesBtn" disabled>Refresh Properties</button>
+        <button id="applyPropertyBtn" disabled>Apply Value Pins</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="title">AssemblyMark and Filters</h2>
+      <div class="row">
+        <label for="filterPropertyName">Filter Property</label>
+        <select id="filterPropertyName" disabled>
+          <option value="">Select parts and refresh properties</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="propertyMatchValue">Filter Match Value</label>
+        <input id="propertyMatchValue" type="text" placeholder="Enter value to match" disabled>
+      </div>
+      <div class="actions">
+        <button id="addAssemblyMarkCogBtn" disabled>Add AssemblyMark @ COG</button>
+        <button id="addFilteredLabelsBtn" disabled>Add Filtered Labels</button>
+        <button id="addHelloWorldBtn" disabled>Add Hello World Test</button>
+        <button id="debugBboxCogBtn" disabled>Debug Raw BBox + COG</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="title">Debug</h2>
+      <div id="debugSummary" class="status">Waiting for selection...</div>
+      <ul id="debugList" class="debug-list"></ul>
+    </section>
+  </main>
+
+  <script src="./app.js?v=20260712-40"></script>
 </body>
 </html>
