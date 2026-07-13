@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-42";
+const BUILD_VERSION = "20260712-43";
 const MARKUP_MIN_OFFSET_UNITS = 150;
 const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -32,11 +32,7 @@ async function connectWithTimeout(connectFn, target, timeoutMs) {
 }
 
 async function connectWorkspaceApi(statusEl) {
-  const candidates = [
-    { name: "parent", target: window.parent },
-    { name: "top", target: window.top },
-    { name: "self", target: window }
-  ];
+  const candidates = [{ name: "self", target: window }];
 
   const seen = new Set();
   const errors = [];
