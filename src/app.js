@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-43";
+const BUILD_VERSION = "20260712-44";
 const MARKUP_MIN_OFFSET_UNITS = 150;
 const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -32,32 +32,38 @@ async function connectWithTimeout(connectFn, target, timeoutMs) {
 }
 
 async function connectWorkspaceApi(statusEl) {
-  const candidates = [{ name: "self", target: window }];
+  const candidates = [
+    { name: "parent", target: window.parent },
+    { name: "top", target: window.top },
+    { name: "self", target: window }
+  ];
 
   const seen = new Set();
   const errors = [];
 
-  // Read connector only from local window; accessing parent/top properties can throw cross-origin errors.
   const modernConnect = window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect
     ? window.TrimbleConnectWorkspace.connect
     : null;
+
   if (!modernConnect) {
-    throw new Error("No TrimbleConnectWorkspace.connect found on local window.");
+    throw new Error("No Trimble API connectors found on window.");
   }
 
-  for (const candidate of candidates) {
-    if (!candidate.target) continue;
-    if (seen.has(candidate.target)) continue;
-    seen.add(candidate.target);
+  if (modernConnect) {
+    for (const candidate of candidates) {
+      if (!candidate.target) continue;
+      if (seen.has(candidate.target)) continue;
+      seen.add(candidate.target);
 
-    statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
-    try {
-      const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
-      return api;
-    } catch (error) {
-      const message = error && error.message ? error.message : String(error);
-      errors.push(candidate.name + ": " + message);
-      await sleep(150);
+      statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
+      try {
+        const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
+        return api;
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        errors.push(candidate.name + ": " + message);
+        await sleep(150);
+      }
     }
   }
 
