@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-40";
+const BUILD_VERSION = "20260712-41";
 const MARKUP_MIN_OFFSET_UNITS = 150;
 const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -41,23 +41,33 @@ async function connectWorkspaceApi(statusEl) {
   const seen = new Set();
   const errors = [];
 
-  const modernConnect = window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect
-    ? window.TrimbleConnectWorkspace.connect
-    : null;
-
-  if (!modernConnect) {
-    throw new Error("No Trimble API connectors found on window.");
+  const connectorTargets = [window, window.parent, window.top];
+  const connectorFunctions = [];
+  const connectorSeen = new Set();
+  for (const connectorTarget of connectorTargets) {
+    if (!connectorTarget) continue;
+    const connectFn = connectorTarget.TrimbleConnectWorkspace && connectorTarget.TrimbleConnectWorkspace.connect
+      ? connectorTarget.TrimbleConnectWorkspace.connect
+      : null;
+    if (!connectFn) continue;
+    if (connectorSeen.has(connectFn)) continue;
+    connectorSeen.add(connectFn);
+    connectorFunctions.push(connectFn);
   }
 
-  if (modernConnect) {
-    for (const candidate of candidates) {
-      if (!candidate.target) continue;
-      if (seen.has(candidate.target)) continue;
-      seen.add(candidate.target);
+  if (!connectorFunctions.length) {
+    throw new Error("No TrimbleConnectWorkspace.connect found on window/parent/top.");
+  }
 
+  for (const candidate of candidates) {
+    if (!candidate.target) continue;
+    if (seen.has(candidate.target)) continue;
+    seen.add(candidate.target);
+
+    for (const connectFn of connectorFunctions) {
       statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
       try {
-        const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
+        const api = await connectWithTimeout(connectFn, candidate.target, 10000);
         return api;
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
@@ -1101,12 +1111,6 @@ async function initExtension() {
   const filteredLabelsBtn = document.getElementById("addFilteredLabelsBtn");
   const debugBboxCogBtn = document.getElementById("debugBboxCogBtn");
   initializeDebugPanel();
-
-  const hasModern = !!(window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect);
-  if (!hasModern) {
-    statusEl.textContent = "No supported Trimble API bundle available.";
-    return;
-  }
 
   try {
     const api = await connectWorkspaceApi(statusEl);
