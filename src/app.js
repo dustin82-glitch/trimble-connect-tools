@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-32";
+const BUILD_VERSION = "20260712-33";
 const MARKUP_MIN_OFFSET_MM = 150;
 const MARKUP_CLEARANCE_MM = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -760,20 +760,9 @@ async function addAssemblyMarkCogMarkup() {
       }
 
       const selectedData = readAssemblyMarkAndCog(selectedObjectData);
-      const x = selectedData.x;
-      const y = selectedData.y;
-      const z = selectedData.z;
-
-      if (x === null || y === null || z === null) {
-        skipped += 1;
-        debugRows.push({
-          modelId: item.modelId,
-          objectRuntimeId: item.objectRuntimeId,
-          value: "cogX=" + String(selectedData.raw.cogX) + ", cogY=" + String(selectedData.raw.cogY) + ", cogZ=" + String(selectedData.raw.cogZ),
-          status: "missing-assembly-cog"
-        });
-        continue;
-      }
+      let x = selectedData.x;
+      let y = selectedData.y;
+      let z = selectedData.z;
 
       const textSource = await resolveAssemblyLabelSource(item);
       if (!textSource.data) {
@@ -785,6 +774,29 @@ async function addAssemblyMarkCogMarkup() {
           status: "missing-text-source"
         });
         continue;
+      }
+
+      let placementStatus = "assembly-cog|text-source=" + textSource.source;
+
+      if (x === null || y === null || z === null) {
+        const boxes = await apiRef.viewer.getObjectBoundingBoxes(item.modelId, [item.objectRuntimeId]);
+        const boxData = boxes && boxes.length ? boxes[0].boundingBox : null;
+        const center = centerOfBox(boxData);
+        if (!center) {
+          skipped += 1;
+          debugRows.push({
+            modelId: item.modelId,
+            objectRuntimeId: item.objectRuntimeId,
+            value: "cogX=" + String(selectedData.raw.cogX) + ", cogY=" + String(selectedData.raw.cogY) + ", cogZ=" + String(selectedData.raw.cogZ),
+            status: "missing-assembly-cog-and-no-bounding-box"
+          });
+          continue;
+        }
+
+        x = center.x;
+        y = center.y;
+        z = center.z;
+        placementStatus += "|fallback=bbox-center";
       }
 
       const textValue = textSource.data.textValue;
@@ -806,7 +818,7 @@ async function addAssemblyMarkCogMarkup() {
         modelId: item.modelId,
         objectRuntimeId: item.objectRuntimeId,
         value: textValue,
-        status: "assembly-cog|text-source=" + textSource.source,
+        status: placementStatus,
         payload: payloadEntry
       });
     } catch (error) {
