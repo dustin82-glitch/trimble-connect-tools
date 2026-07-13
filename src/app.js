@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-44";
+const BUILD_VERSION = "20260712-45";
 const MARKUP_MIN_OFFSET_UNITS = 150;
 const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -41,23 +41,39 @@ async function connectWorkspaceApi(statusEl) {
   const seen = new Set();
   const errors = [];
 
-  const modernConnect = window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect
-    ? window.TrimbleConnectWorkspace.connect
-    : null;
+  const safeReadConnect = (target) => {
+    try {
+      return target && target.TrimbleConnectWorkspace && target.TrimbleConnectWorkspace.connect
+        ? target.TrimbleConnectWorkspace.connect
+        : null;
+    } catch {
+      return null;
+    }
+  };
 
-  if (!modernConnect) {
-    throw new Error("No Trimble API connectors found on window.");
+  const connectFns = [];
+  const fnSeen = new Set();
+  for (const host of [window, window.parent, window.top]) {
+    const fn = safeReadConnect(host);
+    if (!fn) continue;
+    if (fnSeen.has(fn)) continue;
+    fnSeen.add(fn);
+    connectFns.push(fn);
   }
 
-  if (modernConnect) {
-    for (const candidate of candidates) {
-      if (!candidate.target) continue;
-      if (seen.has(candidate.target)) continue;
-      seen.add(candidate.target);
+  if (!connectFns.length) {
+    throw new Error("No TrimbleConnectWorkspace.connect found on window/parent/top.");
+  }
 
+  for (const candidate of candidates) {
+    if (!candidate.target) continue;
+    if (seen.has(candidate.target)) continue;
+    seen.add(candidate.target);
+
+    for (const connectFn of connectFns) {
       statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
       try {
-        const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
+        const api = await connectWithTimeout(connectFn, candidate.target, 10000);
         return api;
       } catch (error) {
         const message = error && error.message ? error.message : String(error);
