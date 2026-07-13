@@ -1,5 +1,5 @@
 let apiRef = null;
-const BUILD_VERSION = "20260712-41";
+const BUILD_VERSION = "20260712-42";
 const MARKUP_MIN_OFFSET_UNITS = 150;
 const MARKUP_CLEARANCE_UNITS = 50;
 const SELECTION_MONITOR_MS = 1200;
@@ -41,22 +41,12 @@ async function connectWorkspaceApi(statusEl) {
   const seen = new Set();
   const errors = [];
 
-  const connectorTargets = [window, window.parent, window.top];
-  const connectorFunctions = [];
-  const connectorSeen = new Set();
-  for (const connectorTarget of connectorTargets) {
-    if (!connectorTarget) continue;
-    const connectFn = connectorTarget.TrimbleConnectWorkspace && connectorTarget.TrimbleConnectWorkspace.connect
-      ? connectorTarget.TrimbleConnectWorkspace.connect
-      : null;
-    if (!connectFn) continue;
-    if (connectorSeen.has(connectFn)) continue;
-    connectorSeen.add(connectFn);
-    connectorFunctions.push(connectFn);
-  }
-
-  if (!connectorFunctions.length) {
-    throw new Error("No TrimbleConnectWorkspace.connect found on window/parent/top.");
+  // Read connector only from local window; accessing parent/top properties can throw cross-origin errors.
+  const modernConnect = window.TrimbleConnectWorkspace && window.TrimbleConnectWorkspace.connect
+    ? window.TrimbleConnectWorkspace.connect
+    : null;
+  if (!modernConnect) {
+    throw new Error("No TrimbleConnectWorkspace.connect found on local window.");
   }
 
   for (const candidate of candidates) {
@@ -64,16 +54,14 @@ async function connectWorkspaceApi(statusEl) {
     if (seen.has(candidate.target)) continue;
     seen.add(candidate.target);
 
-    for (const connectFn of connectorFunctions) {
-      statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
-      try {
-        const api = await connectWithTimeout(connectFn, candidate.target, 10000);
-        return api;
-      } catch (error) {
-        const message = error && error.message ? error.message : String(error);
-        errors.push(candidate.name + ": " + message);
-        await sleep(150);
-      }
+    statusEl.textContent = "Connecting to Workspace API (" + candidate.name + ")...";
+    try {
+      const api = await connectWithTimeout(modernConnect, candidate.target, 10000);
+      return api;
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      errors.push(candidate.name + ": " + message);
+      await sleep(150);
     }
   }
 
